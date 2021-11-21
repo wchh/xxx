@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+option go_package = "./;types";
+
+package types;
+
+message Signature {
+  bytes public_key = 1;
+  bytes Signature = 2;
+}
+
+message Tx {
+  bytes data = 1;
+  string to = 2;
+  string contract = 3;
+  string op = 4;
+  int64 height = 5;
+  int64 nonce = 6;
+  Signature sig = 7;
+}
+
+message Header {
+  bytes parent_hash = 1;
+  int64 height = 2;
+  int32 round = 3;
+  bytes txs_hash = 4;
+}
+
+message Block {
+  Header header = 1;
+  repeated Tx txs = 2;
+}
+
+message NewBlock {
+  Header header = 1;
+  Tx tx0 = 2;
+  repeated bytes failed_hashs = 3;
+  Signature sig = 4;
+}
+
+message StoreBlock {
+  Header header = 1;
+  repeated bytes tx_hashs = 2;
+}
+
+message VrfInput {
+  int64 height = 1;
+  int32 round = 2;
+  bytes seed = 3;
+}
+
+message VrfProof {
+  VrfInput input = 1;
+  bytes proof = 2;
+  bytes hash = 3;
+  bytes public_key = 4;
+}
+
+message SortHash {
+  int64 index = 1;
+  bytes hash = 2;
+  int32 group = 3;
+}
+
+message Sortition {
+  repeated SortHash hashs = 1;
+  VrfProof proof = 2;
+  Signature sig = 3;
+}
+
+message CommitteeVote {
+  int64 height = 1;
+  int32 round = 2;
+  repeated bytes comm_hashs = 3;
+  repeated bytes my_hashs = 4;
+  Signature sig = 5;
+}
+
+message Vote {
+  int64 height = 1;
+  int32 round = 2;
+  bytes hash = 3;
+  repeated bytes my_hashs = 4;
+  //   repeated SortHash sort_hashs = 4;
+  Signature sig = 5;
+}
+
+message StateSnapshot {}
+
+message GetBlocks {
+  int64 start = 1;
+  int64 count = 2;
+}
+
+message BlocksReply {
+  repeated Block bs = 1;
+  int64 last_height = 2;
+}
+
+message Msg {
+  string topic = 1;
+  bytes data = 2;
+}
+
+message PeerInfo {
+  string pid = 1;
+  string chainID = 7;
+  string node = 2;
+  string version = 3;
+  string address = 4;
+  bool synced = 5;
+  Header header = 6;
+}
+
+message Amount { int64 a = 1; }
+
+///////////////////////////////////////////////////////////////////////
+
+message Ycc_Mine {
+  repeated Vote votes = 1;
+  Sortition sort = 2;
+}
