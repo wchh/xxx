@@ -159,7 +159,7 @@ func QueryBalance(addr string, db db.KV) (int64, error) {
 	return amount, nil
 }
 
-func (c *Coin) CreateIssueTx(amount int64) (*types.Tx, error) {
+func CreateIssueTx(amount int64, c *contract.Container) (*types.Tx, error) {
 	a := &types.Amount{
 		A: amount,
 	}

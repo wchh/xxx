@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"xxx/contract"
+	"xxx/contract/coin"
 	"xxx/contract/ycc"
 	"xxx/crypto"
 	"xxx/db"
@@ -28,7 +29,8 @@ type Conf struct {
 	AdvSortBlocks int
 	AdvVoteBlocks int
 	CheckSig      bool
-	cpuNum        int
+	CpuNum        int
+	Single        bool
 }
 
 type hr struct {
@@ -43,6 +45,7 @@ type Consensus struct {
 	c         *contract.Container
 	lastBlock *types.Block
 	priv      crypto.PrivateKey
+	myAddr    string
 
 	maker_mp      map[int64]map[int]*maker
 	committee_mp  map[int64]map[int]*committee
@@ -67,6 +70,7 @@ func New(conf *Conf, n *p2p.Node, c *contract.Container) (*Consensus, error) {
 		n:             n,
 		db:            ldb,
 		c:             c,
+		myAddr:        crypto.PubkeyToAddr(n.Priv.PublicKey()),
 		maker_mp:      make(map[int64]map[int]*maker),
 		committee_mp:  make(map[int64]map[int]*committee),
 		preblock_mp:   make(map[int64]*types.Block),
@@ -77,8 +81,64 @@ func New(conf *Conf, n *p2p.Node, c *contract.Container) (*Consensus, error) {
 	}, nil
 }
 
-func (c *Consensus) GenesisBlock() *types.Block {
-	return nil
+func (c *Consensus) clean(height int64) {
+	N := int64(c.AdvSortBlocks + 10)
+	for h := range c.maker_mp {
+		if h < height-N {
+			delete(c.maker_mp, h)
+		}
+	}
+	for h := range c.committee_mp {
+		if h < height-N {
+			delete(c.committee_mp, h)
+		}
+	}
+	for h := range c.preblock_mp {
+		if h < height-N {
+			delete(c.preblock_mp, h)
+		}
+	}
+	for h := range c.alldeposit_mp {
+		if h < height-N {
+			delete(c.alldeposit_mp, h)
+		}
+	}
+	for h := range c.blocks_mp {
+		if h < height-N {
+			delete(c.blocks_mp, h)
+		}
+	}
+}
+
+func (c *Consensus) GenesisBlock() (*types.Block, error) {
+	tx0, err := coin.CreateIssueTx(coin.CoinX*1000000000, c.c)
+	if err != nil {
+		return nil, err
+	}
+	tx1, err := coin.CreateTransferTx(nil, c.myAddr, 10000*c.VotePrice, 0)
+	if err != nil {
+		return nil, err
+	}
+	tx2, err := ycc.CreateDepositTx(nil, c.myAddr, 10000*c.VotePrice, 0)
+	if err != nil {
+		return nil, err
+	}
+	txs := []*types.Tx{tx0, tx1, tx2}
+	merkel := txsMerkel(txs)
+
+	var nilHash [32]byte
+
+	h := &types.Header{
+		ParentHash: nilHash[:],
+		Height:     0,
+		Round:      0,
+		TxsHash:    merkel,
+	}
+
+	return &types.Block{
+		Header: h,
+		Txs:    txs,
+	}, nil
 }
 
 func (c *Consensus) handleP2pMsg(m *p2p.Msg) {
@@ -167,6 +227,7 @@ func (c *Consensus) ConsensusRun() {
 			c.voteMaker(b.Header.Height+int64(c.AdvVoteBlocks), round)
 			c.voteCommittee(b.Header.Height+int64(c.AdvVoteBlocks), round)
 			time.AfterFunc(blockTimeout, func() { tm1Ch <- b.Header.Height })
+			c.clean(b.Header.Height)
 		case <-tm3Ch:
 			c.makeBlock(c.lastBlock, round)
 		case height := <-tm2Ch:
@@ -264,7 +325,7 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 
 	txs := b.Txs
 	if c.CheckSig {
-		txs, failedHash, _ = txsVerifySig(txs, c.cpuNum, false)
+		txs, failedHash, _ = txsVerifySig(txs, c.CpuNum, false)
 	}
 
 	db := db.NewMDB(c.db)
@@ -309,7 +370,7 @@ func (c *Consensus) execBlock(b *types.Block) error {
 
 	txs := b.Txs
 	if c.CheckSig {
-		oktxs, _, err := txsVerifySig(txs, c.cpuNum, true)
+		oktxs, _, err := txsVerifySig(txs, c.CpuNum, true)
 		if err != nil {
 			return err
 		}

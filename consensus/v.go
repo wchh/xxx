@@ -74,6 +74,7 @@ func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][
 			break
 		}
 	}
+	close(ch2)
 	close(ch)
 	wg.Wait()
 	close(tch)
