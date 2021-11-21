@@ -27,6 +27,8 @@ type Conf struct {
 	TxFee         int64
 	AdvSortBlocks int
 	AdvVoteBlocks int
+	CheckSig      bool
+	cpuNum        int
 }
 
 type hr struct {
@@ -260,23 +262,28 @@ func (c *Consensus) handleCommitteeVote(v *types.CommitteeVote) {
 func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 	var failedHash [][]byte
 
+	txs := b.Txs
+	if c.CheckSig {
+		txs, failedHash, _ = txsVerifySig(txs, c.cpuNum, false)
+	}
+
 	db := db.NewMDB(c.db)
 	c.c.SetDB(db)
 
-	txs := make([]*types.Tx, len(b.Txs))
+	rtxs := make([]*types.Tx, len(txs))
 	index := 0
-	for _, tx := range b.Txs {
+	for _, tx := range txs {
 		err := c.c.ExecTx(tx)
 		if err != nil {
 			failedHash = append(failedHash, tx.Hash())
 		} else {
-			txs[index] = tx
+			rtxs[index] = tx
 		}
 		index++
 	}
-	txs = txs[:index]
-	b.Header.TxsHash = txsMerkel(txs)
-	b.Txs = txs
+	rtxs = rtxs[:index]
+	b.Header.TxsHash = txsMerkel(rtxs)
+	b.Txs = rtxs
 
 	comm := c.getCommittee(b.Header.Height, int(b.Header.Round))
 	comm.db = db
@@ -300,7 +307,16 @@ func (c *Consensus) execBlock(b *types.Block) error {
 	kv := db.NewBKV(t)
 	c.c.SetDB(kv)
 
-	for _, tx := range b.Txs {
+	txs := b.Txs
+	if c.CheckSig {
+		oktxs, _, err := txsVerifySig(txs, c.cpuNum, true)
+		if err != nil {
+			return err
+		}
+		txs = oktxs
+	}
+
+	for _, tx := range txs {
 		err := c.c.ExecTx(tx)
 		if err != nil {
 			t.Discard()

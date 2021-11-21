@@ -188,3 +188,5 @@ func UnmarshalAmount(data []byte) (int64, error) {
 	}
 	return a.A, nil
 }
+
+type ServerInfo = PeerInfo

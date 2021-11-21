@@ -159,12 +159,34 @@ func QueryBalance(addr string, db db.KV) (int64, error) {
 	return amount, nil
 }
 
-func CreateTransferTx(priv crypto.PrivateKey, to string, amount, height int64) (*types.Tx, error) {
-	coin := &types.Amount{
+func (c *Coin) CreateIssueTx(amount int64) (*types.Tx, error) {
+	a := &types.Amount{
 		A: amount,
 	}
 
-	data, err := types.Marshal(coin)
+	data, err := types.Marshal(a)
+	if err != nil {
+		return nil, err
+	}
+
+	tx := &types.Tx{
+		To:       c.GenesisAddr,
+		Contract: Name,
+		Op:       IssueOp,
+		Data:     data,
+		Height:   0,
+		Nonce:    rand.Int63(),
+	}
+
+	return tx, nil
+}
+
+func CreateTransferTx(priv crypto.PrivateKey, to string, amount, height int64) (*types.Tx, error) {
+	a := &types.Amount{
+		A: amount,
+	}
+
+	data, err := types.Marshal(a)
 	if err != nil {
 		return nil, err
 	}

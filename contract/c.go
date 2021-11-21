@@ -29,6 +29,7 @@ type Contract interface {
 // func (b *Base) GetDB() *db.StateDB            { return b.db }
 type Conf struct {
 	FundAddr    string
+	GenesisAddr string
 	ManagetAddr string
 	VotePrice   int64
 	TxFee       int64

@@ -44,7 +44,11 @@ func (c *Chain) QueryBlock(ctx context.Context, args []byte, reply *types.Block)
 	return nil
 }
 
-func (c *Chain) PeerInfo(ctx context.Context, args *struct{}, reply *types.PeerInfo) error {
+func (c *Chain) PeersInfo(ctx context.Context, args *struct{}, reply *types.PeersInfo) error {
+	return nil
+}
+
+func (c *Chain) ServerInfo(ctx context.Context, args *struct{}, reply *types.ServerInfo) error {
 	return nil
 }
 

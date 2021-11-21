@@ -107,9 +107,14 @@ message PeerInfo {
   string chainID = 7;
   string node = 2;
   string version = 3;
-  string address = 4;
+  int32 peer_count = 4;
   bool synced = 5;
   Header header = 6;
+}
+
+message PeersInfo {
+  int64 count = 2;
+  repeated PeerInfo peers = 1;
 }
 
 message Amount { int64 a = 1; }
