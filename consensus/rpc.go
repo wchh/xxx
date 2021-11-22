@@ -6,6 +6,7 @@ import (
 	"xxx/contract/ycc"
 	"xxx/types"
 
+	"github.com/smallnest/rpcx/client"
 	"github.com/smallnest/rpcx/server"
 )
 
@@ -51,4 +52,14 @@ func runRpc(addr string, c *Consensus) {
 	// s.Register(c, "")
 	s.RegisterName("Consensus", c, "")
 	go s.Serve("tcp", addr)
+}
+
+func (c *Consensus) getRpcClient(addr, svc string) (client.XClient, error) {
+	d, err := client.NewPeer2PeerDiscovery("tcp@"+addr, "")
+	if err != nil {
+		return nil, err
+	}
+	opt := client.DefaultOption
+	// opt.SerializeType = protocol.JSON
+	return client.NewXClient(svc, client.Failtry, client.RandomSelect, d, opt), nil
 }

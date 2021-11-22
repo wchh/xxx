@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -192,18 +193,19 @@ func (c *Consensus) handleP2pMsg(m *p2p.Msg) {
 			panic(err)
 		}
 		c.handleConsensusBlock(&b)
-	case p2p.BlocksTopic:
-		var b types.BlocksReply
-		err := types.Unmarshal(m.Data, &b)
-		if err != nil {
-			panic(err)
-		}
-		c.handleBlocksReply(m.PID, &b)
+		// case p2p.BlocksTopic:
+		// 	var b types.BlocksReply
+		// 	err := types.Unmarshal(m.Data, &b)
+		// 	if err != nil {
+		// 		panic(err)
+		// 	}
+		// 	c.handleBlocksReply(m.PID, &b)
 	}
 }
 
 func (c *Consensus) Run() {
 	go runRpc(c.RpcAddr, c)
+	go c.runSync()
 	c.ConsensusRun()
 }
 
@@ -607,30 +609,65 @@ func (c *Consensus) voteBlock(height int64, round int) {
 	}
 }
 
-func (c *Consensus) handleBlocksReply(pid string, m *types.BlocksReply) {
+func (c *Consensus) handleBlocksReply(m *types.BlocksReply) bool {
 	for _, b := range m.Bs {
-		for _, tx := range b.Txs {
-			err := c.c.ExecTx(tx)
-			if err != nil {
-				panic(err)
-			}
+		err := c.execBlock(b)
+		if err != nil {
+			clog.Error("execBlock error", "err", err)
+			return false
 		}
+		// for _, tx := range b.Txs {
+		// 	err := c.c.ExecTx(tx)
+		// 	if err != nil {
+		// 		panic(err)
+		// 	}
+		// }
 		c.lastBlock = b
 	}
-	if m.LastHeight != m.Bs[len(m.Bs)-1].Header.Height {
-		count := m.LastHeight - c.lastBlock.Header.Height
-		if count > 10 {
-			count = 10
-		}
-		r := &types.GetBlocks{
-			Start: c.lastBlock.Header.Height + 1,
-			Count: count,
-		}
-		c.n.SendMsg(pid, p2p.GetBlocksTopic, r)
-	}
+
+	return m.LastHeight == m.Bs[len(m.Bs)-1].Header.Height
+	// if m.LastHeight != m.Bs[len(m.Bs)-1].Header.Height {
+	// 	count := m.LastHeight - c.lastBlock.Header.Height
+	// 	if count > 10 {
+	// 		count = 10
+	// 	}
+	// 	return false
+	// }
 }
 
-func (c *Consensus) Sync() {
+func (c *Consensus) getBlocks(count int64) (*types.BlocksReply, error) {
+	r := &types.GetBlocks{
+		Start: c.lastBlock.Header.Height + 1,
+		Count: count,
+	}
+
+	clt, err := c.getRpcClient(c.getDataNode().RpcAddr, "Chain")
+	if err != nil {
+		clog.Error("handleBlocksReply error", "err", err)
+		return nil, err
+	}
+	var br types.BlocksReply
+	err = clt.Call(context.Background(), "GetBlocks", r, &br)
+	if err != nil {
+		clog.Error("handleBlocksReply error", "err", err)
+		return nil, err
+	}
+	return &br, nil
+}
+
+func (c *Consensus) getDataNode() *types.PeerInfo {
+	return nil
+}
+
+func (c *Consensus) runSync() {
+	synced := false
+	for !synced {
+		br, err := c.getBlocks(10)
+		if err != nil {
+			clog.Error("sync error", "err", err)
+		}
+		synced = c.handleBlocksReply(br)
+	}
 }
 
 // TODO: peerlist and data node list

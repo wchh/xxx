@@ -1,11 +1,10 @@
 package p2p
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"time"
 	ccrypto "xxx/crypto"
@@ -27,80 +26,20 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 
 	// disc "github.com/libp2p/go-libp2p/p2p/discovery"
-	pio "github.com/libp2p/go-msgio/protoio"
+
 	"github.com/multiformats/go-multiaddr"
 )
 
 var plog = log.New("p2p")
 
-type mdnsNotifee struct {
-	h   host.Host
-	ctx context.Context
-}
-
-func (m *mdnsNotifee) HandlePeerFound(pi peer.AddrInfo) {
-	if m.h.Network().Connectedness(pi.ID) != network.Connected {
-		plog.Info("mdns peer found", "pid", pi.ID.String())
-		m.h.Connect(m.ctx, pi)
-	}
-}
-
 type Node struct {
 	*Conf
-	h       host.Host
-	tmap    map[string]*pubsub.Topic
-	ctx     context.Context
-	streams map[peer.ID]*stream
-	// incoming   chan *types.Msg
-	outgoing   chan *smsg
-	raddrPid   string
-	peersTopic string
+	host.Host
+	tmap map[string]*pubsub.Topic
+	C    chan *Msg
 }
 
-const remoteAddrID = "ycc-pos33-addr"
-const pos33Peerstore = "ycc-pos33-peerstore"
-const sendtoID = "ycc-pos33-sendto"
-const pos33MsgID = "ycc-pos33-msg"
-
-func (g *Node) bootstrap(addrs ...string) error {
-	for _, addr := range addrs {
-		targetAddr, err := multiaddr.NewMultiaddr(addr)
-		if err != nil {
-			plog.Error("bootstrap error", "err", err)
-			return err
-		}
-
-		targetInfo, err := peer.AddrInfoFromP2pAddr(targetAddr)
-		if err != nil {
-			plog.Error("bootstrap error", "err", err)
-			return err
-		}
-
-		g.h.Peerstore().AddAddrs(targetInfo.ID, targetInfo.Addrs, peerstore.AddressTTL)
-		err = g.h.Connect(g.ctx, *targetInfo)
-		if err != nil {
-			plog.Error("bootstrap error", "err", err)
-			continue
-		}
-		plog.Info("connect boot peer", "bootpeer", targetAddr.String())
-		s, err := g.h.NewStream(g.ctx, targetInfo.ID, protocol.ID(g.raddrPid))
-		if err != nil {
-			plog.Error("bootstrap error", "err", err)
-			continue
-		}
-		s.Write([]byte(g.h.ID()))
-		s.Close()
-	}
-	return nil
-}
-
-type stream struct {
-	s  network.Stream
-	w  *bufio.Writer
-	wc pio.WriteCloser
-}
-
-const defaultMaxSize = 1024 * 1024
+// const defaultMaxSize = 1024 * 1024
 
 type Msg struct {
 	Topic string
@@ -115,7 +54,6 @@ type Conf struct {
 	ForwardPeers bool
 	Topics       []string
 	BootPeers    []string
-	C            chan *Msg
 }
 
 func NewNode(conf *Conf) (*Node, error) {
@@ -137,36 +75,67 @@ func NewNode(conf *Conf) (*Node, error) {
 		return nil, err
 	}
 
-	ns := conf.NameService
-
 	g := &Node{
-		Conf:    conf,
-		ctx:     ctx,
-		h:       h,
-		tmap:    make(map[string]*pubsub.Topic),
-		streams: make(map[peer.ID]*stream),
-		// incoming:   make(chan *types.Msg, 16),
-		outgoing:   make(chan *smsg, 16),
-		raddrPid:   ns + "/" + remoteAddrID,
-		peersTopic: ns + "-" + pos33Peerstore,
+		Host: h,
+		Conf: conf,
+		tmap: make(map[string]*pubsub.Topic),
 	}
 	g.setHandler()
 	topics := conf.Topics
-	topics = append(topics, g.peersTopic)
-	go g.run(ps, topics, conf.ForwardPeers)
+	topics = append(topics, remoteAddrTopic)
+
+	for _, t := range topics {
+		t := t
+		tp, err := ps.Join(t)
+		if err != nil {
+			return nil, err
+		}
+		g.tmap[t] = tp
+	}
+
+	go g.run(ps, conf.ForwardPeers)
 	return g, nil
 }
 
+func (g *Node) bootstrap(addrs ...string) error {
+	for _, addr := range addrs {
+		targetAddr, err := multiaddr.NewMultiaddr(addr)
+		if err != nil {
+			plog.Error("bootstrap error", "err", err)
+			return err
+		}
+
+		targetInfo, err := peer.AddrInfoFromP2pAddr(targetAddr)
+		if err != nil {
+			plog.Error("bootstrap error", "err", err)
+			return err
+		}
+
+		g.Peerstore().AddAddrs(targetInfo.ID, targetInfo.Addrs, peerstore.AddressTTL)
+		err = g.Connect(context.Background(), *targetInfo)
+		if err != nil {
+			plog.Error("bootstrap error", "err", err)
+			continue
+		}
+		plog.Info("connect boot peer", "bootpeer", targetAddr.String())
+		s, err := g.NewStream(context.Background(), targetInfo.ID, protocol.ID(remoteAddrTopic))
+		if err != nil {
+			plog.Error("bootstrap error", "err", err)
+			continue
+		}
+		s.Write([]byte(g.ID()))
+		s.Close()
+	}
+	return nil
+}
+
 func (g *Node) setHandler() {
-	h := g.h
-	h.SetStreamHandler(protocol.ID(g.raddrPid), func(s network.Stream) {
+	g.SetStreamHandler(protocol.ID(remoteAddrTopic), func(s network.Stream) {
 		maddr := s.Conn().RemoteMultiaddr()
 		pid := s.Conn().RemotePeer()
 		plog.Info("remote peer", "peer", pid, "addr", maddr)
-		h.Peerstore().AddAddrs(pid, []multiaddr.Multiaddr{maddr}, peerstore.AddressTTL)
+		g.Peerstore().AddAddrs(pid, []multiaddr.Multiaddr{maddr}, peerstore.AddressTTL)
 	})
-
-	h.SetStreamHandler(pos33MsgID, g.handleIncoming)
 }
 
 func (g *Node) handlePeers(data []byte) {
@@ -177,10 +146,10 @@ func (g *Node) handlePeers(data []byte) {
 		return
 	}
 	for _, ai := range ais {
-		if ai.ID != g.h.ID() {
+		if ai.ID != g.ID() {
 			plog.Info("add remote peer", "addr", ai.String())
-			g.h.Peerstore().AddAddrs(ai.ID, ai.Addrs, peerstore.AddressTTL)
-			err = g.h.Connect(g.ctx, ai)
+			g.Peerstore().AddAddrs(ai.ID, ai.Addrs, peerstore.AddressTTL)
+			err = g.Connect(context.Background(), ai)
 			if err != nil {
 				plog.Error("connect error", "err", err)
 			}
@@ -188,58 +157,55 @@ func (g *Node) handlePeers(data []byte) {
 	}
 }
 
-func (g *Node) run(ps *pubsub.PubSub, topics []string, forwardPeers bool) {
-	for _, t := range topics {
-		t := t
-		tp, err := ps.Join(t)
-		if err != nil {
-			panic(err)
+func (g *Node) run(ps *pubsub.PubSub, forwardPeers bool) {
+	go g.runBootstrap(ps)
+	go g.sendPeersAddr()
+	go printPeerstore(g)
+
+	read := func(s *pubsub.Subscription) {
+		for {
+			m, err := s.Next(context.Background())
+			if err != nil {
+				panic(err)
+			}
+			if g.ID() == m.ReceivedFrom {
+				continue
+			}
+			if s.Topic() == remoteAddrTopic {
+				go g.handlePeers(m.Data)
+			} else {
+				g.C <- &Msg{Data: m.Data, Topic: s.Topic()}
+			}
 		}
-		g.tmap[t] = tp
+	}
+
+	for _, tp := range g.tmap {
 		sb, err := tp.Subscribe()
 		if err != nil {
 			panic(err)
 		}
-		go func(s *pubsub.Subscription) {
-			for {
-				m, err := s.Next(g.ctx)
-				if err != nil {
-					panic(err)
-				}
-				if g.h.ID() == m.ReceivedFrom {
-					continue
-				}
-				if t == g.peersTopic {
-					go g.handlePeers(m.Data)
-				} else {
-					g.C <- &Msg{Data: m.Data, Topic: s.Topic()}
-				}
-			}
-		}(sb)
+		go read(sb)
 	}
-	go g.handleOutgoing()
-	go func() {
-		for range time.NewTicker(time.Second * 60).C {
-			np := ps.ListPeers(topics[0])
-			plog.Info("pos33 peers ", "len", len(np), "peers", np)
-			if len(np) < 3 {
-				g.bootstrap(g.BootPeers...)
-			}
+}
+
+func (g *Node) runBootstrap(ps *pubsub.PubSub) {
+	for range time.NewTicker(time.Second * 60).C {
+		np := ps.ListPeers(PeerInfoTopic)
+		plog.Info("pos33 peers ", "len", len(np), "peers", np)
+		if len(np) < 3 {
+			g.bootstrap(g.BootPeers...)
 		}
-	}()
-	if forwardPeers {
-		go g.sendPeerstore(g.h)
 	}
-	// go g.fsLoop(fs)
 }
 
 func (g *Node) publish(topic string, data []byte) error {
 	t, ok := g.tmap[topic]
 	if !ok {
-		panic("can't go here")
+		return errors.New("not support topic")
 	}
-	return t.Publish(g.ctx, data)
+	return t.Publish(context.Background(), data)
 }
+
 func (g *Node) Publish(topic string, msg types.Message) error {
 	data, err := types.Marshal(msg)
 	if err != nil {
@@ -261,88 +227,6 @@ func Pub2pid(pub []byte) (peer.ID, error) {
 		return "", err
 	}
 	return pid, nil
-}
-
-func (s *stream) writeMsg(msg types.Message) error {
-	err := s.wc.WriteMsg(msg)
-	if err != nil {
-		return err
-	}
-
-	return s.w.Flush()
-}
-
-func (g *Node) getStream(pid peer.ID) (*stream, error) {
-	st, ok := g.streams[pid]
-	if !ok {
-		s, err := g.h.NewStream(g.ctx, pid, pos33MsgID)
-		if err != nil {
-			return nil, err
-		}
-		w := bufio.NewWriter(s)
-		st = &stream{s: s, w: w, wc: pio.NewDelimitedWriter(w)}
-		g.streams[pid] = st
-	}
-	return st, nil
-}
-
-type smsg struct {
-	pid peer.ID
-	msg *types.Msg
-}
-
-func (g *Node) SendMsg(pid, topic string, msg types.Message) error {
-	// pid, err := pub2pid(pub)
-	// if err != nil {
-	// 	return err
-	// }
-
-	buf, err := types.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	g.outgoing <- &smsg{peer.ID(pid), &types.Msg{Topic: topic, Data: buf}}
-	return nil
-}
-
-func (g *Node) handleIncoming(s network.Stream) {
-	r := pio.NewDelimitedReader(s, defaultMaxSize)
-	for {
-		m := new(types.Msg)
-		err := r.ReadMsg(m)
-		if err != nil {
-			if err != io.EOF {
-				plog.Error("recv remote error", "err", err)
-				s.Reset()
-				return
-			}
-			s.Close()
-			return
-		}
-		plog.Debug("recv from remote peer", "protocolID", s.Protocol(), "remote peer", s.Conn().RemotePeer())
-		g.C <- &Msg{Topic: m.Topic, Data: m.Data, PID: string(s.Conn().RemotePeer())}
-	}
-}
-
-func (g *Node) handleOutgoing() {
-	for {
-		m := <-g.outgoing
-		s, err := g.getStream(m.pid)
-		if err != nil {
-			plog.Error("new stream error", "err", err)
-			continue
-		}
-		err = s.writeMsg(m.msg)
-		if err != nil {
-			plog.Error("write msg error", "err", err)
-			if err != io.EOF {
-				s.s.Reset()
-			} else {
-				s.s.Close()
-			}
-			delete(g.streams, m.pid)
-		}
-	}
 }
 
 func newHost(ctx context.Context, priv crypto.PrivKey, port int, ns string) host.Host {
@@ -388,12 +272,12 @@ func newHost(ctx context.Context, priv crypto.PrivKey, port int, ns string) host
 	return h
 }
 
-func (g *Node) sendPeerstore(h host.Host) {
+func (g *Node) sendPeersAddr() {
 	for range time.NewTicker(time.Second * 60).C {
-		peers := h.Peerstore().PeersWithAddrs()
+		peers := g.Peerstore().PeersWithAddrs()
 		var ais []*peer.AddrInfo
 		for _, id := range peers {
-			maddr := h.Peerstore().Addrs(id)
+			maddr := g.Peerstore().Addrs(id)
 			ai := &peer.AddrInfo{Addrs: maddr, ID: id}
 			ais = append(ais, ai)
 			plog.Info("peer:", "pid", id.String()[:16], "addr", maddr)
@@ -403,7 +287,7 @@ func (g *Node) sendPeerstore(h host.Host) {
 			plog.Error("pid marshal error", "err", err)
 			return
 		}
-		g.publish(g.peersTopic, data)
+		g.publish(remoteAddrTopic, data)
 	}
 }
 
@@ -417,12 +301,24 @@ func printPeerstore(h host.Host) {
 	}
 }
 
+// type mdnsNotifee struct {
+// 	h   host.Host
+// 	ctx context.Context
+// }
+
+// func (m *mdnsNotifee) HandlePeerFound(pi peer.AddrInfo) {
+// 	if m.h.Network().Connectedness(pi.ID) != network.Connected {
+// 		plog.Info("mdns peer found", "pid", pi.ID.String())
+// 		m.h.Connect(m.ctx, pi)
+// 	}
+// }
+
 func discover(ctx context.Context, h host.Host, idht *dht.IpfsDHT, ns string) {
 	_, err := autonat.New(ctx, h)
 	if err != nil {
 		panic(err)
 	}
-	// mdns, err := disc.NewMdnsService(ctx, h, time.Second*10, ns)
+	// mdns, err := discovery.NewMdnsService(ctx, h, time.Second*10, ns)
 	// if err != nil {
 	// 	panic(err)
 	// }
@@ -449,7 +345,7 @@ func discover(ctx context.Context, h host.Host, idht *dht.IpfsDHT, ns string) {
 				continue
 			}
 
-			stream, err := host.NewStream(ctx, peer.ID, protocol.ID(ns+"/"+remoteAddrID))
+			stream, err := host.NewStream(ctx, peer.ID, protocol.ID(remoteAddrTopic))
 			if err != nil {
 				plog.Error("NewStream error:", "err", err)
 				return
@@ -491,4 +387,6 @@ const (
 	GetBlocksTopic = "getblocks"
 
 	PeerInfoTopic = "peerinfo"
+
+	remoteAddrTopic = "remoteaddress"
 )

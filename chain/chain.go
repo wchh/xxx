@@ -45,13 +45,13 @@ func (c *Chain) handleP2pMsg(m *p2p.Msg) {
 			panic(err)
 		}
 		c.handleNewBlock(&b)
-	case p2p.GetBlocksTopic:
-		var b types.GetBlocks
-		err := types.Unmarshal(m.Data, &b)
-		if err != nil {
-			panic(err)
-		}
-		c.handleGetBlock(m.PID, &b)
+		// case p2p.GetBlocksTopic:
+		// 	var b types.GetBlocks
+		// 	err := types.Unmarshal(m.Data, &b)
+		// 	if err != nil {
+		// 		panic(err)
+		// 	}
+		// 	c.handleGetBlock(m.PID, &b)
 	}
 }
 
@@ -189,10 +189,10 @@ func (c *Chain) getTx(h []byte) (*types.Tx, error) {
 	return tx, nil
 }
 
-func (c *Chain) handleGetBlock(pid string, m *types.GetBlocks) {
-	br, _ := c.getBlocks(m)
-	c.n.SendMsg(pid, p2p.BlocksTopic, br)
-}
+// func (c *Chain) handleGetBlock(pid string, m *types.GetBlocks) {
+// 	br, _ := c.getBlocks(m)
+// 	c.n.SendMsg(pid, p2p.BlocksTopic, br)
+// }
 
 func (c *Chain) getBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 	var bs []*types.Block

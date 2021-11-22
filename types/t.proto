@@ -104,12 +104,14 @@ message Msg {
 
 message PeerInfo {
   string pid = 1;
-  string chainID = 7;
-  string node = 2;
-  string version = 3;
-  int32 peer_count = 4;
-  bool synced = 5;
-  Header header = 6;
+  string node_type = 2;
+  string chainID = 3;
+  string version = 4;
+  string serverAddr = 5;
+  string rpcAddr = 6;
+  int32 peer_count = 7;
+  bool synced = 8;
+  Header last_header = 9;
 }
 
 message PeersInfo {
