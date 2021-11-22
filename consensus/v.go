@@ -9,7 +9,7 @@ import (
 func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][]byte, error) {
 	ch := make(chan *types.Tx)
 	done := make(chan struct{})
-	errch := make(chan struct{}, 1)
+	errch := make(chan error, 1)
 	tch := make(chan *types.Tx, 1)
 	hch := make(chan []byte, 1)
 	wg := new(sync.WaitGroup)
@@ -24,10 +24,11 @@ func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][
 				case tx := <-ch:
 					if !tx.Verify() {
 						hch <- tx.Hash()
-						select {
-						case errch <- struct{}{}:
-							return
-						default:
+						if errReturn {
+							select {
+							case errch <- errors.New("tx verify error"):
+							default:
+							}
 						}
 					} else {
 						tch <- tx
@@ -51,33 +52,31 @@ func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][
 		}
 	}()
 
-	ch2 := make(chan *types.Tx)
 	done2 := make(chan struct{})
 	go func() {
+		defer close(done)
 		for _, tx := range txs {
-			ch2 <- tx
-		}
-		close(done2)
-	}()
-	for {
-		stop := false
-		select {
-		case <-errch:
-			if errReturn {
-				return nil, nil, errors.New("tx verify error")
+			select {
+			case <-done2:
+				return
+			default:
 			}
-		case <-done2:
-			stop = true
-		case ch <- <-ch2:
+			ch <- tx
 		}
-		if stop {
-			break
+	}()
+
+	var err error
+	select {
+	case err = <-errch:
+		if errReturn {
+			close(done2)
 		}
+	case <-done:
 	}
-	close(ch2)
-	close(ch)
+
 	wg.Wait()
+	close(ch)
 	close(tch)
 	close(hch)
-	return rtxs, rhs, nil
+	return rtxs, rhs, err
 }
