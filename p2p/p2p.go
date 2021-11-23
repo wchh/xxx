@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"time"
+
 	ccrypto "xxx/crypto"
 	"xxx/log"
 	"xxx/types"
@@ -159,8 +160,10 @@ func (g *Node) handlePeers(data []byte) {
 
 func (g *Node) run(ps *pubsub.PubSub, forwardPeers bool) {
 	go g.runBootstrap(ps)
-	go g.sendPeersAddr()
 	go printPeerstore(g)
+	if forwardPeers {
+		go g.sendPeersAddr()
+	}
 
 	read := func(s *pubsub.Subscription) {
 		for {
@@ -192,7 +195,7 @@ func (g *Node) runBootstrap(ps *pubsub.PubSub) {
 	for range time.NewTicker(time.Second * 60).C {
 		np := ps.ListPeers(PeerInfoTopic)
 		plog.Info("pos33 peers ", "len", len(np), "peers", np)
-		if len(np) < 3 {
+		if len(np) < 3 && len(np) < len(g.BootPeers) {
 			g.bootstrap(g.BootPeers...)
 		}
 	}

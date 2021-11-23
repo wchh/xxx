@@ -13,7 +13,6 @@ require (
 	github.com/libp2p/go-libp2p-discovery v0.5.1
 	github.com/libp2p/go-libp2p-kad-dht v0.13.1
 	github.com/libp2p/go-libp2p-pubsub v0.5.4
-	github.com/libp2p/go-msgio v0.0.6
 	github.com/multiformats/go-multiaddr v0.4.1
 	github.com/smallnest/rpcx v1.6.11
 	github.com/syndtr/goleveldb v1.0.1-0.20200815110645-5c35d600f0ca
@@ -100,6 +99,7 @@ require (
 	github.com/libp2p/go-libp2p-yamux v0.5.4 // indirect
 	github.com/libp2p/go-maddr-filter v0.1.0 // indirect
 	github.com/libp2p/go-mplex v0.3.0 // indirect
+	github.com/libp2p/go-msgio v0.0.6 // indirect
 	github.com/libp2p/go-nat v0.0.5 // indirect
 	github.com/libp2p/go-netroute v0.1.6 // indirect
 	github.com/libp2p/go-openssl v0.0.7 // indirect

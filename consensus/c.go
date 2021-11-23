@@ -193,13 +193,13 @@ func (c *Consensus) handleP2pMsg(m *p2p.Msg) {
 			panic(err)
 		}
 		c.handleConsensusBlock(&b)
-		// case p2p.BlocksTopic:
-		// 	var b types.BlocksReply
-		// 	err := types.Unmarshal(m.Data, &b)
-		// 	if err != nil {
-		// 		panic(err)
-		// 	}
-		// 	c.handleBlocksReply(m.PID, &b)
+	case p2p.BlocksTopic:
+		var b types.BlocksReply
+		err := types.Unmarshal(m.Data, &b)
+		if err != nil {
+			panic(err)
+		}
+		c.handleBlocksReply(&b)
 	}
 }
 
@@ -616,23 +616,10 @@ func (c *Consensus) handleBlocksReply(m *types.BlocksReply) bool {
 			clog.Error("execBlock error", "err", err)
 			return false
 		}
-		// for _, tx := range b.Txs {
-		// 	err := c.c.ExecTx(tx)
-		// 	if err != nil {
-		// 		panic(err)
-		// 	}
-		// }
 		c.lastBlock = b
 	}
 
 	return m.LastHeight == m.Bs[len(m.Bs)-1].Header.Height
-	// if m.LastHeight != m.Bs[len(m.Bs)-1].Header.Height {
-	// 	count := m.LastHeight - c.lastBlock.Header.Height
-	// 	if count > 10 {
-	// 		count = 10
-	// 	}
-	// 	return false
-	// }
 }
 
 func (c *Consensus) getBlocks(count int64) (*types.BlocksReply, error) {
