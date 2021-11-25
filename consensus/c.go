@@ -1,7 +1,6 @@
 package consensus
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -24,13 +23,14 @@ type Conf struct {
 	DataPath      string
 	ServerAddr    string
 	RpcAddr       string
-	VotePrice     int64
 	GenesisAddr   string
+	DataNode      string
+	VotePrice     int64
 	TxFee         int64
 	AdvSortBlocks int
 	AdvVoteBlocks int
-	CheckSig      bool
 	CpuNum        int
+	CheckSig      bool
 	Single        bool
 }
 
@@ -52,7 +52,8 @@ type Consensus struct {
 	committee_mp  map[int64]map[int]*committee
 	preblock_mp   map[int64]*types.Block
 	alldeposit_mp map[int64]int
-	blocks_mp     map[int64]*types.Block
+	block_mp      map[int64]*types.Block
+	peer_mp       map[string]*types.PeerInfo
 
 	vbch chan hr
 	nbch chan *types.Block
@@ -76,9 +77,11 @@ func New(conf *Conf, n *p2p.Node, c *contract.Container) (*Consensus, error) {
 		committee_mp:  make(map[int64]map[int]*committee),
 		preblock_mp:   make(map[int64]*types.Block),
 		alldeposit_mp: make(map[int64]int),
-		blocks_mp:     make(map[int64]*types.Block),
-		vbch:          make(chan hr, 1),
-		nbch:          make(chan *types.Block, 1),
+		block_mp:      make(map[int64]*types.Block),
+		peer_mp:       make(map[string]*types.PeerInfo),
+
+		vbch: make(chan hr, 1),
+		nbch: make(chan *types.Block, 1),
 	}, nil
 }
 
@@ -104,9 +107,9 @@ func (c *Consensus) clean(height int64) {
 			delete(c.alldeposit_mp, h)
 		}
 	}
-	for h := range c.blocks_mp {
+	for h := range c.block_mp {
 		if h < height-N {
-			delete(c.blocks_mp, h)
+			delete(c.block_mp, h)
 		}
 	}
 }
@@ -209,6 +212,14 @@ func (c *Consensus) Run() {
 	c.ConsensusRun()
 }
 
+func (c *Consensus) handleNewblock(b *types.Block, round int) {
+	c.makeBlock(b, round)
+	c.sortition(b, round)
+	c.voteMaker(b.Header.Height+int64(c.AdvVoteBlocks), round)
+	c.voteCommittee(b.Header.Height+int64(c.AdvVoteBlocks), round)
+	c.clean(b.Header.Height)
+}
+
 func (c *Consensus) ConsensusRun() {
 	round := 0
 	blockTimeout := time.Second * 4
@@ -224,18 +235,18 @@ func (c *Consensus) ConsensusRun() {
 			c.voteBlock(hr.h, hr.r)
 		case b := <-c.nbch:
 			round = 0
-			c.makeBlock(b, round)
-			c.sortition(b, round)
-			c.voteMaker(b.Header.Height+int64(c.AdvVoteBlocks), round)
-			c.voteCommittee(b.Header.Height+int64(c.AdvVoteBlocks), round)
+			c.handleNewblock(b, round)
 			time.AfterFunc(blockTimeout, func() { tm1Ch <- b.Header.Height })
-			c.clean(b.Header.Height)
-		case <-tm3Ch:
-			c.makeBlock(c.lastBlock, round)
+		case height := <-tm3Ch:
+			if c.lastBlock.Header.Height == height {
+				c.makeBlock(c.lastBlock, round)
+			}
 		case height := <-tm2Ch:
-			c.voteMaker(height, round)
-			c.voteCommittee(height, round)
-			time.AfterFunc(time.Second, func() { tm2Ch <- height })
+			if c.lastBlock.Header.Height == height {
+				c.voteMaker(height, round)
+				c.voteCommittee(height, round)
+				time.AfterFunc(time.Second, func() { tm2Ch <- height })
+			}
 		case height := <-tm1Ch:
 			if c.lastBlock.Header.Height == height {
 				round++
@@ -362,6 +373,12 @@ func txsMerkel(txs []*types.Tx) []byte {
 	return crypto.Merkle(hashs)
 }
 
+func doErr(err *error, f func()) {
+	if err != nil {
+		f()
+	}
+}
+
 func (c *Consensus) execBlock(b *types.Block) error {
 	t, err := c.db.OpenTransaction()
 	if err != nil {
@@ -370,25 +387,26 @@ func (c *Consensus) execBlock(b *types.Block) error {
 	kv := db.NewBKV(t)
 	c.c.SetDB(kv)
 
+	defer doErr(&err, func() {
+		t.Discard()
+	})
+
 	txs := b.Txs
 	if c.CheckSig {
-		oktxs, _, err := txsVerifySig(txs, c.CpuNum, true)
+		txs, _, err = txsVerifySig(txs, c.CpuNum, true)
 		if err != nil {
 			return err
 		}
-		txs = oktxs
 	}
 
 	for _, tx := range txs {
-		err := c.c.ExecTx(tx)
+		err = c.c.ExecTx(tx)
 		if err != nil {
-			t.Discard()
 			return err
 		}
 	}
 	err = t.Write(kv.B)
 	if err != nil {
-		t.Discard()
 		return err
 	}
 	return t.Commit()
@@ -428,8 +446,11 @@ func (c *Consensus) setBlock(hash string, height int64, round int) {
 	}
 
 	c.lastBlock = b // b is complete block
-	c.blocks_mp[b.Header.Height] = b
+	c.block_mp[b.Header.Height] = b
 	c.n.Publish(p2p.NewBlockTopic, nb)
+	go func() {
+		c.nbch <- b
+	}()
 }
 
 func (c *Consensus) handleBlockVote(v *types.Vote) {
@@ -477,7 +498,7 @@ func (c *Consensus) difficulty(t, r int, h int64) float64 {
 func (c *Consensus) verifySort(s *types.Sortition) error {
 	height := s.Proof.Input.Height
 	round := int(s.Proof.Input.Round)
-	b, ok := c.blocks_mp[height-10]
+	b, ok := c.block_mp[height-10]
 	if !ok {
 		return fmt.Errorf("verifySort error: NO block in the cache. height=%d", height)
 	}
@@ -627,24 +648,38 @@ func (c *Consensus) getBlocks(count int64) (*types.BlocksReply, error) {
 		Start: c.lastBlock.Header.Height + 1,
 		Count: count,
 	}
-
-	clt, err := c.getRpcClient(c.getDataNode().RpcAddr, "Chain")
-	if err != nil {
-		clog.Error("handleBlocksReply error", "err", err)
-		return nil, err
+	for pid, p := range c.peer_mp {
+		if p.NodeType == "data" {
+			c.n.Send(pid, p2p.GetBlocksTopic, r)
+			break
+		}
 	}
-	var br types.BlocksReply
-	err = clt.Call(context.Background(), "GetBlocks", r, &br)
-	if err != nil {
-		clog.Error("handleBlocksReply error", "err", err)
-		return nil, err
-	}
-	return &br, nil
+	return nil, nil
 }
 
-func (c *Consensus) getDataNode() *types.PeerInfo {
-	return nil
-}
+// func (c *Consensus) getBlocksFromRpc(count int64) (*types.BlocksReply, error) {
+// 	r := &types.GetBlocks{
+// 		Start: c.lastBlock.Header.Height + 1,
+// 		Count: count,
+// 	}
+
+// 	clt, err := c.getRpcClient(c.getDataNode().RpcAddr, "Chain")
+// 	if err != nil {
+// 		clog.Error("handleBlocksReply error", "err", err)
+// 		return nil, err
+// 	}
+// 	var br types.BlocksReply
+// 	err = clt.Call(context.Background(), "GetBlocks", r, &br)
+// 	if err != nil {
+// 		clog.Error("handleBlocksReply error", "err", err)
+// 		return nil, err
+// 	}
+// 	return &br, nil
+// }
+
+// func (c *Consensus) getDataNode() *types.PeerInfo {
+// 	return nil
+// }
 
 func (c *Consensus) runSync() {
 	synced := false

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 
 	// disc "github.com/libp2p/go-libp2p/p2p/discovery"
 
+	pio "github.com/libp2p/go-msgio/protoio"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -37,7 +39,16 @@ type Node struct {
 	*Conf
 	host.Host
 	tmap map[string]*pubsub.Topic
+	smap map[string]stream
+
 	C    chan *Msg
+	smch chan *sdmsg
+}
+
+type sdmsg struct {
+	pid   string
+	topic string
+	msg   types.Message
 }
 
 // const defaultMaxSize = 1024 * 1024
@@ -80,10 +91,14 @@ func NewNode(conf *Conf) (*Node, error) {
 		Host: h,
 		Conf: conf,
 		tmap: make(map[string]*pubsub.Topic),
+		smap: make(map[string]stream),
+		C:    make(chan *Msg, 64),
+		smch: make(chan *sdmsg, 1),
 	}
 	g.setHandler()
 	topics := conf.Topics
 	topics = append(topics, remoteAddrTopic)
+	topics = append(topics, sendMsgTopic)
 
 	for _, t := range topics {
 		t := t
@@ -137,6 +152,7 @@ func (g *Node) setHandler() {
 		plog.Info("remote peer", "peer", pid, "addr", maddr)
 		g.Peerstore().AddAddrs(pid, []multiaddr.Multiaddr{maddr}, peerstore.AddressTTL)
 	})
+	g.SetStreamHandler(protocol.ID(sendMsgTopic), g.handleIncoming)
 }
 
 func (g *Node) handlePeers(data []byte) {
@@ -158,9 +174,69 @@ func (g *Node) handlePeers(data []byte) {
 	}
 }
 
+const defaultMaxSize = 1024 * 1024
+
+func (g *Node) handleIncoming(s network.Stream) {
+	r := pio.NewDelimitedReader(s, defaultMaxSize)
+	for {
+		m := new(types.Msg)
+		err := r.ReadMsg(m)
+		if err != nil {
+			if err != io.EOF {
+				plog.Error("recv remote error", "err", err)
+				s.Reset()
+				return
+			}
+			s.Close()
+			return
+		}
+		plog.Debug("recv from remote peer", "protocolID", s.Protocol(), "remote peer", s.Conn().RemotePeer())
+		g.C <- &Msg{PID: s.ID(), Topic: m.Topic, Data: m.Data}
+	}
+}
+
+type stream pio.WriteCloser
+
+func (g *Node) newStream(pid string) (stream, error) {
+	st, ok := g.smap[pid]
+	if !ok {
+		s, err := g.NewStream(context.Background(), peer.ID(pid), sendMsgTopic)
+		if err != nil {
+			return nil, err
+		}
+		st = pio.NewDelimitedWriter(s)
+		g.smap[pid] = st
+	}
+	return st, nil
+}
+
+func (g *Node) handleOutgoing() {
+	for {
+		m := <-g.smch
+		s, err := g.newStream(m.pid)
+		if err != nil {
+			plog.Error("new stream error", "err", err)
+			continue
+		}
+		data, err := types.Marshal(m.msg)
+		if err != nil {
+			plog.Error("new stream error", "err", err)
+			continue
+		}
+
+		err = s.WriteMsg(&types.Msg{Topic: m.topic, Data: data})
+		if err != nil {
+			plog.Error("write msg error", "err", err)
+			s.Close()
+			delete(g.smap, m.pid)
+		}
+	}
+}
+
 func (g *Node) run(ps *pubsub.PubSub, forwardPeers bool) {
 	go g.runBootstrap(ps)
 	go printPeerstore(g)
+	go g.handleOutgoing()
 	if forwardPeers {
 		go g.sendPeersAddr()
 	}
@@ -207,6 +283,11 @@ func (g *Node) publish(topic string, data []byte) error {
 		return errors.New("not support topic")
 	}
 	return t.Publish(context.Background(), data)
+}
+
+func (g *Node) Send(pid, topic string, msg types.Message) error {
+	g.smch <- &sdmsg{pid, topic, msg}
+	return nil
 }
 
 func (g *Node) Publish(topic string, msg types.Message) error {
@@ -392,4 +473,5 @@ const (
 	PeerInfoTopic = "peerinfo"
 
 	remoteAddrTopic = "remoteaddress"
+	sendMsgTopic    = "sendmsg"
 )
