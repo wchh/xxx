@@ -172,16 +172,20 @@ func getSorts(mp map[string]*types.Sortition, num int) []*types.SortHash {
 // 	return len(vs), nil
 // }
 
-func (c *committee) getMyHashs(hs [][]byte) [][]byte {
+func (c *committee) getMyHashs() ([][]byte, [][]byte) {
+	comHashs := c.getCommitteeHashs()
+	if c.myss == nil {
+		return nil, comHashs
+	}
 	var mysh [][]byte
-	for _, h := range hs {
+	for _, h := range comHashs {
 		for _, mh := range c.myss.Hashs {
 			if string(h) == string(mh.Hash) {
 				mysh = append(mysh, h)
 			}
 		}
 	}
-	return mysh
+	return mysh, comHashs
 }
 
 func (c *committee) getMakerHashs() [][]byte {

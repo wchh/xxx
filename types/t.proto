@@ -23,6 +23,7 @@ message Header {
   bytes parent_hash = 1;
   int64 height = 2;
   int32 round = 3;
+  int64 block_time = 5;
   bytes txs_hash = 4;
 }
 

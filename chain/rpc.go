@@ -7,6 +7,15 @@ import (
 	"github.com/smallnest/rpcx/server"
 )
 
+func (c *Chain) GetPreBlocks(ctx context.Context, args *types.GetBlocks, reply *types.BlocksReply) error {
+	br, err := c.getPreBlocks(args)
+	if err != nil {
+		return err
+	}
+	*reply = *br
+	return nil
+}
+
 func (c *Chain) GetBlocks(ctx context.Context, args *types.GetBlocks, reply *types.BlocksReply) error {
 	br, err := c.getBlocks(args)
 	if err != nil {

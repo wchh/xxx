@@ -128,7 +128,7 @@ func (c *Consensus) GenesisBlock() (*types.Block, error) {
 		return nil, err
 	}
 	txs := []*types.Tx{tx0, tx1, tx2}
-	merkel := txsMerkel(txs)
+	merkel := types.TxsMerkel(txs)
 
 	var nilHash [32]byte
 
@@ -196,7 +196,7 @@ func (c *Consensus) handleP2pMsg(m *p2p.Msg) {
 			panic(err)
 		}
 		c.handleConsensusBlock(&b)
-	case p2p.BlocksTopic:
+	case p2p.BlocksReplyTopic:
 		var b types.BlocksReply
 		err := types.Unmarshal(m.Data, &b)
 		if err != nil {
@@ -218,6 +218,7 @@ func (c *Consensus) handleNewblock(b *types.Block, round int) {
 	c.voteMaker(b.Header.Height+int64(c.AdvVoteBlocks), round)
 	c.voteCommittee(b.Header.Height+int64(c.AdvVoteBlocks), round)
 	c.clean(b.Header.Height)
+	c.getPreBlocks(b.Header.Height+1, 4)
 }
 
 func (c *Consensus) ConsensusRun() {
@@ -293,11 +294,12 @@ func (c *Consensus) makeBlock(pb *types.Block, round int) {
 	}
 
 	tx0.Sign(c.priv)
-	b := c.preblock_mp[height]
+	b, ok := c.preblock_mp[height]
+	if !ok {
+		return
+	}
 	b.Header.Round = int32(round)
-	txs := b.Txs
-	b.Txs = []*types.Tx{tx0}
-	b.Txs = append(b.Txs, txs...)
+	b.Txs = append([]*types.Tx{tx0}, b.Txs...)
 
 	nb, err := c.perExecBlock(b)
 	if err != nil {
@@ -356,21 +358,13 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 		index++
 	}
 	rtxs = rtxs[:index]
-	b.Header.TxsHash = txsMerkel(rtxs)
+	b.Header.TxsHash = types.TxsMerkel(rtxs)
 	b.Txs = rtxs
 
 	comm := c.getCommittee(b.Header.Height, int(b.Header.Round))
 	comm.db = db
 	comm.b = b
 	return &types.NewBlock{Header: b.Header, FailedHashs: failedHash, Tx0: b.Txs[0]}, nil
-}
-
-func txsMerkel(txs []*types.Tx) []byte {
-	var hashs [][]byte
-	for _, tx := range txs {
-		hashs = append(hashs, tx.Hash())
-	}
-	return crypto.Merkle(hashs)
 }
 
 func doErr(err *error, f func()) {
@@ -433,7 +427,7 @@ func (c *Consensus) setBlock(hash string, height int64, round int) {
 			}
 		}
 
-		if string(nb.Header.TxsHash) != string(txsMerkel(txs)) {
+		if string(nb.Header.TxsHash) != string(types.TxsMerkel(txs)) {
 			panic("merkel NOT same")
 		}
 
@@ -534,7 +528,7 @@ func (c *Consensus) handleCommitteeSort(s *types.Sortition) {
 }
 
 func (c *Consensus) sortition(b *types.Block, round int) {
-	n, err := ycc.QueryDeposit(crypto.PubkeyToAddr(c.priv.PublicKey()), c.db)
+	n, err := ycc.QueryDeposit(c.myAddr, c.db)
 	if err != nil {
 		clog.Error("sortition error", "err", err)
 		return
@@ -555,6 +549,9 @@ func (c *Consensus) sortMaker(height int64, round, n int, seed []byte) {
 	s, err := vrfSortiton(input, n, 1, c.difficulty(MakerSize, round, height))
 	if err != nil {
 		clog.Error("sortCommittee error", "err", err)
+		return
+	}
+	if len(s.Hashs) == 0 {
 		return
 	}
 
@@ -579,6 +576,10 @@ func (c *Consensus) sortCommittee(height int64, round, n int, seed []byte) {
 		clog.Error("sortCommittee error", "err", err)
 		return
 	}
+	if len(s.Hashs) == 0 {
+		return
+	}
+
 	s.Sign(c.priv)
 	c.handleCommitteeSort(s)
 
@@ -587,12 +588,15 @@ func (c *Consensus) sortCommittee(height int64, round, n int, seed []byte) {
 
 func (c *Consensus) voteMaker(height int64, round int) {
 	comm := c.getCommittee(height, round)
-	hashs := comm.getCommitteeHashs()
+	myHashs, _ := comm.getMyHashs()
+	if myHashs == nil {
+		return
+	}
 	v := &types.CommitteeVote{
 		Height:    height,
 		Round:     int32(round),
 		CommHashs: comm.getMakerHashs(),
-		MyHashs:   comm.getMyHashs(hashs),
+		MyHashs:   myHashs,
 	}
 
 	c.n.Publish(p2p.MakerVoteTopic, v)
@@ -601,12 +605,15 @@ func (c *Consensus) voteMaker(height int64, round int) {
 
 func (c *Consensus) voteCommittee(height int64, round int) {
 	comm := c.getCommittee(height, round)
-	hashs := comm.getCommitteeHashs()
+	myHashs, comHashs := comm.getMyHashs()
+	if myHashs == nil {
+		return
+	}
 	cmmtt := &types.CommitteeVote{
 		Height:    height,
 		Round:     int32(round),
-		CommHashs: hashs,
-		MyHashs:   comm.getMyHashs(hashs),
+		CommHashs: comHashs,
+		MyHashs:   myHashs,
 	}
 
 	c.n.Publish(p2p.CommitteeVoteTopic, cmmtt)
@@ -616,13 +623,18 @@ func (c *Consensus) voteCommittee(height int64, round int) {
 func (c *Consensus) voteBlock(height int64, round int) {
 	comm := c.getCommittee(height, round)
 	sort.Sort(types.NewBlockSlice(comm.ab.bs))
+
+	myhashs, _ := comm.getMyHashs()
+	if myhashs == nil {
+		return
+	}
 	if len(comm.ab.bs) > 0 {
 		b := comm.ab.bs[0]
 		v := &types.Vote{
 			Height:  height,
 			Round:   int32(round),
 			Hash:    b.Header.TxsHash,
-			MyHashs: comm.getMyHashs(comm.getCommitteeHashs()),
+			MyHashs: myhashs,
 		}
 		v.Sign(c.priv)
 		c.n.Publish(p2p.BlockVoteTopic, v)
@@ -632,6 +644,9 @@ func (c *Consensus) voteBlock(height int64, round int) {
 
 func (c *Consensus) handleBlocksReply(m *types.BlocksReply) bool {
 	for _, b := range m.Bs {
+		if b.Header.Height != c.lastBlock.Header.Height+1 {
+			return false
+		}
 		err := c.execBlock(b)
 		if err != nil {
 			clog.Error("execBlock error", "err", err)
@@ -643,48 +658,41 @@ func (c *Consensus) handleBlocksReply(m *types.BlocksReply) bool {
 	return m.LastHeight == m.Bs[len(m.Bs)-1].Header.Height
 }
 
-func (c *Consensus) getBlocks(count int64) (*types.BlocksReply, error) {
-	r := &types.GetBlocks{
-		Start: c.lastBlock.Header.Height + 1,
-		Count: count,
-	}
-	for pid, p := range c.peer_mp {
-		if p.NodeType == "data" {
-			c.n.Send(pid, p2p.GetBlocksTopic, r)
-			break
+func (c *Consensus) getPreBlocks(start, count int64) error {
+	for i := start; i < start+count; i++ {
+		_, ok := c.preblock_mp[i]
+		if !ok {
+			c.getBlocks(i, 1, p2p.GetPreBlocksTopic)
 		}
 	}
-	return nil, nil
+	return nil
 }
 
-// func (c *Consensus) getBlocksFromRpc(count int64) (*types.BlocksReply, error) {
-// 	r := &types.GetBlocks{
-// 		Start: c.lastBlock.Header.Height + 1,
-// 		Count: count,
-// 	}
+func (c *Consensus) getBlocks(start, count int64, m string) error {
+	r := &types.GetBlocks{
+		Start: start,
+		Count: count,
+	}
+	p := c.getDataNode()
+	if p != nil {
+		return c.n.Send(p.Pid, m, r)
+	}
+	return fmt.Errorf("NO data node")
+}
 
-// 	clt, err := c.getRpcClient(c.getDataNode().RpcAddr, "Chain")
-// 	if err != nil {
-// 		clog.Error("handleBlocksReply error", "err", err)
-// 		return nil, err
-// 	}
-// 	var br types.BlocksReply
-// 	err = clt.Call(context.Background(), "GetBlocks", r, &br)
-// 	if err != nil {
-// 		clog.Error("handleBlocksReply error", "err", err)
-// 		return nil, err
-// 	}
-// 	return &br, nil
-// }
-
-// func (c *Consensus) getDataNode() *types.PeerInfo {
-// 	return nil
-// }
+func (c *Consensus) getDataNode() *types.PeerInfo {
+	for _, p := range c.peer_mp {
+		if p.NodeType == "data" {
+			return p
+		}
+	}
+	return nil
+}
 
 func (c *Consensus) runSync() {
 	synced := false
 	for !synced {
-		br, err := c.getBlocks(10)
+		br, err := c.rpcGetBlocks(c.lastBlock.Header.Height+1, 10, "GetBlocks")
 		if err != nil {
 			clog.Error("sync error", "err", err)
 		}

@@ -467,8 +467,11 @@ const (
 	CommitteeVoteTopic = "committeevote"
 	BlockVoteTopic     = "blockvote"
 
-	BlocksTopic    = "blocksreply"
-	GetBlocksTopic = "getblocks"
+	BlocksReplyTopic = "blocksreply"
+	GetBlocksTopic   = "getblocks"
+
+	PreBlocksReplyTopic = "preblocksreply"
+	GetPreBlocksTopic   = "getpreblocks"
 
 	PeerInfoTopic = "peerinfo"
 

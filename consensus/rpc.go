@@ -63,3 +63,27 @@ func (c *Consensus) getRpcClient(addr, svc string) (client.XClient, error) {
 	// opt.SerializeType = protocol.JSON
 	return client.NewXClient(svc, client.Failtry, client.RandomSelect, d, opt), nil
 }
+
+func (c *Consensus) rpcGetPreBlocks(start, count int64) (*types.BlocksReply, error) {
+	return c.rpcGetBlocks(start, count, "GetPreBlocks")
+}
+
+func (c *Consensus) rpcGetBlocks(start, count int64, m string) (*types.BlocksReply, error) {
+	r := &types.GetBlocks{
+		Start: start,
+		Count: count,
+	}
+
+	clt, err := c.getRpcClient(c.getDataNode().RpcAddr, "Chain")
+	if err != nil {
+		clog.Error("handleBlocksReply error", "err", err)
+		return nil, err
+	}
+	var br types.BlocksReply
+	err = clt.Call(context.Background(), m, r, &br)
+	if err != nil {
+		clog.Error("handleBlocksReply error", "err", err)
+		return nil, err
+	}
+	return &br, nil
+}

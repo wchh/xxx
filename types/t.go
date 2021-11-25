@@ -190,3 +190,11 @@ func UnmarshalAmount(data []byte) (int64, error) {
 }
 
 type ServerInfo = PeerInfo
+
+func TxsMerkel(txs []*Tx) []byte {
+	var hashs [][]byte
+	for _, tx := range txs {
+		hashs = append(hashs, tx.Hash())
+	}
+	return crypto.Merkle(hashs)
+}

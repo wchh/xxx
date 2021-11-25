@@ -3,7 +3,6 @@ package chain
 import (
 	"fmt"
 
-	"xxx/crypto"
 	"xxx/db"
 	"xxx/p2p"
 	"xxx/types"
@@ -45,13 +44,20 @@ func (c *Chain) handleP2pMsg(m *p2p.Msg) {
 			panic(err)
 		}
 		c.handleNewBlock(&b)
-		// case p2p.GetBlocksTopic:
-		// 	var b types.GetBlocks
-		// 	err := types.Unmarshal(m.Data, &b)
-		// 	if err != nil {
-		// 		panic(err)
-		// 	}
-		// 	c.handleGetBlock(m.PID, &b)
+	case p2p.GetPreBlocksTopic:
+		var b types.GetBlocks
+		err := types.Unmarshal(m.Data, &b)
+		if err != nil {
+			panic(err)
+		}
+		c.handleGetPreBlocks(m.PID, &b)
+	case p2p.GetBlocksTopic:
+		var b types.GetBlocks
+		err := types.Unmarshal(m.Data, &b)
+		if err != nil {
+			panic(err)
+		}
+		c.handleGetBlocks(m.PID, &b)
 	}
 }
 
@@ -74,6 +80,7 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) {
 		for _, h := range nb.FailedHashs {
 			if string(th) == string(h) {
 				f = true
+				break
 			}
 		}
 		if !f {
@@ -99,12 +106,8 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) {
 	c.curHeight = nb.Header.Height
 
 	pb := c.bm[c.curHeight+4]
-	var hashs [][]byte
-	for _, tx := range pb.Txs {
-		hashs = append(hashs, tx.Hash())
-	}
-	pb.Header.TxsHash = crypto.Merkle(hashs)
-	c.n.Publish(p2p.PreBlockTopic, pb)
+	pb.Header.TxsHash = types.TxsMerkel(pb.Txs)
+	// c.n.Publish(p2p.PreBlockTopic, pb)
 }
 
 func (c *Chain) writeBlock(hash []byte, sb *types.StoreBlock) error {
@@ -189,10 +192,28 @@ func (c *Chain) getTx(h []byte) (*types.Tx, error) {
 	return tx, nil
 }
 
-// func (c *Chain) handleGetBlock(pid string, m *types.GetBlocks) {
-// 	br, _ := c.getBlocks(m)
-// 	c.n.SendMsg(pid, p2p.BlocksTopic, br)
-// }
+func (c *Chain) handleGetPreBlocks(pid string, m *types.GetBlocks) {
+	br, _ := c.getPreBlocks(m)
+	c.n.Send(pid, p2p.PreBlocksReplyTopic, br)
+}
+
+func (c *Chain) handleGetBlocks(pid string, m *types.GetBlocks) {
+	br, _ := c.getBlocks(m)
+	c.n.Send(pid, p2p.BlocksReplyTopic, br)
+}
+
+func (c *Chain) getPreBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
+	var bs []*types.Block
+	for i := m.Start; i < m.Start+m.Count; i++ {
+		b, ok := c.bm[i]
+		if !ok {
+			// return nil, fmt.Errorf("the %d preblock NOT here", i)
+			break
+		}
+		bs = append(bs, b)
+	}
+	return &types.BlocksReply{Bs: bs, LastHeight: c.curHeight}, nil
+}
 
 func (c *Chain) getBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 	var bs []*types.Block
