@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 
-	"github.com/33cn/chain33/common/address"
+	// "github.com/33cn/chain33/common/address"
+
+	"github.com/btcsuite/btcutil/base58"
 	"github.com/tendermint/tendermint/crypto/merkle"
 )
 
@@ -62,15 +64,15 @@ func DoubleHash(msg []byte) []byte {
 }
 
 func (pub PublicKey) Address() string {
-	return address.PubKeyToAddr(pub)
+	return base58.Encode(pub[:20])
 }
 
 func NewAddress(hash []byte) string {
-	return address.HashToAddress(0, hash).String()
+	return base58.Encode(Hash(hash))
 }
 
 func PubkeyToAddr(pub PublicKey) string {
-	return address.PubKeyToAddr(pub)
+	return base58.Encode(pub[:20])
 }
 
 func Merkle(hashs [][]byte) []byte {

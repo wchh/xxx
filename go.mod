@@ -3,7 +3,7 @@ module xxx
 go 1.17
 
 require (
-	github.com/33cn/chain33 v1.66.0
+	// github.com/33cn/chain33 v1.66.0
 	github.com/BurntSushi/toml v0.4.1
 	github.com/gogo/protobuf v1.3.2
 	github.com/libp2p/go-libp2p v0.15.0
@@ -22,6 +22,12 @@ require (
 )
 
 require (
+	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce
+	github.com/libp2p/go-msgio v0.0.6
+	github.com/sirupsen/logrus v1.8.1
+)
+
+require (
 	github.com/apache/thrift v0.14.0 // indirect
 	github.com/armon/go-metrics v0.3.9 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -32,8 +38,6 @@ require (
 	github.com/cheekybits/genny v1.0.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
-	github.com/decred/base58 v1.0.3 // indirect
-	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
 	github.com/dgryski/go-jump v0.0.0-20170409065014-e1f439676b57 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/edwingeng/doublejump v0.0.0-20200219153503-7cfc0ed6e836 // indirect
@@ -43,7 +47,6 @@ require (
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/go-ping/ping v0.0.0-20201115131931-3300c582a663 // indirect
 	github.com/go-redis/redis/v8 v8.8.2 // indirect
-	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
@@ -99,7 +102,6 @@ require (
 	github.com/libp2p/go-libp2p-yamux v0.5.4 // indirect
 	github.com/libp2p/go-maddr-filter v0.1.0 // indirect
 	github.com/libp2p/go-mplex v0.3.0 // indirect
-	github.com/libp2p/go-msgio v0.0.6 // indirect
 	github.com/libp2p/go-nat v0.0.5 // indirect
 	github.com/libp2p/go-netroute v0.1.6 // indirect
 	github.com/libp2p/go-openssl v0.0.7 // indirect

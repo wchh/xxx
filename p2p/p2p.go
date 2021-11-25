@@ -117,7 +117,7 @@ func (g *Node) bootstrap(addrs ...string) error {
 	for _, addr := range addrs {
 		targetAddr, err := multiaddr.NewMultiaddr(addr)
 		if err != nil {
-			plog.Error("bootstrap error", "err", err)
+			// plog.Warn("bootstrap error", "err", err)
 			return err
 		}
 
