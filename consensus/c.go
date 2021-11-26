@@ -477,7 +477,7 @@ func (c *Consensus) difficulty(t, r int, h int64) float64 {
 	if !ok {
 		n, err := ycc.QueryAllDeposit(c.db)
 		if err != nil {
-			clog.Error("diff error", "err", err)
+			clog.Errorw("diff error", "err", err)
 			return 1
 		}
 		all = int(n / c.VotePrice)
@@ -506,7 +506,7 @@ func (c *Consensus) verifySort(s *types.Sortition) error {
 func (c *Consensus) handleMakerSort(s *types.Sortition) {
 	err := c.verifySort(s)
 	if err != nil {
-		clog.Error("handleMakerSort error:", "err", err)
+		clog.Errorw("handleMakerSort error:", "err", err)
 	}
 
 	height := s.Proof.Input.Height
@@ -518,7 +518,7 @@ func (c *Consensus) handleMakerSort(s *types.Sortition) {
 func (c *Consensus) handleCommitteeSort(s *types.Sortition) {
 	err := c.verifySort(s)
 	if err != nil {
-		clog.Error("handleCommitteeSort error:", "err", err)
+		clog.Errorw("handleCommitteeSort error:", "err", err)
 	}
 
 	height := s.Proof.Input.Height
@@ -530,7 +530,7 @@ func (c *Consensus) handleCommitteeSort(s *types.Sortition) {
 func (c *Consensus) sortition(b *types.Block, round int) {
 	n, err := ycc.QueryDeposit(c.myAddr, c.db)
 	if err != nil {
-		clog.Error("sortition error", "err", err)
+		clog.Errorw("sortition error", "err", err)
 		return
 	}
 	height := b.Header.Height + int64(c.AdvSortBlocks)
@@ -548,7 +548,7 @@ func (c *Consensus) sortMaker(height int64, round, n int, seed []byte) {
 
 	s, err := vrfSortiton(input, n, 1, c.difficulty(MakerSize, round, height))
 	if err != nil {
-		clog.Error("sortCommittee error", "err", err)
+		clog.Errorw("sortCommittee error", "err", err)
 		return
 	}
 	if len(s.Hashs) == 0 {
@@ -573,7 +573,7 @@ func (c *Consensus) sortCommittee(height int64, round, n int, seed []byte) {
 
 	s, err := vrfSortiton(input, n, 3, c.difficulty(CommitteeSize, round, height))
 	if err != nil {
-		clog.Error("sortCommittee error", "err", err)
+		clog.Errorw("sortCommittee error", "err", err)
 		return
 	}
 	if len(s.Hashs) == 0 {
@@ -649,7 +649,7 @@ func (c *Consensus) handleBlocksReply(m *types.BlocksReply) bool {
 		}
 		err := c.execBlock(b)
 		if err != nil {
-			clog.Error("execBlock error", "err", err)
+			clog.Errorw("execBlock error", "err", err)
 			return false
 		}
 		c.lastBlock = b
@@ -694,7 +694,7 @@ func (c *Consensus) runSync() {
 	for !synced {
 		br, err := c.rpcGetBlocks(c.lastBlock.Header.Height+1, 10, "GetBlocks")
 		if err != nil {
-			clog.Error("sync error", "err", err)
+			clog.Errorw("sync error", "err", err)
 		}
 		synced = c.handleBlocksReply(br)
 	}

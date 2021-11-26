@@ -11,6 +11,7 @@ import (
 	"xxx/contract"
 	"xxx/contract/coin"
 	"xxx/contract/ycc"
+	"xxx/log"
 	"xxx/p2p"
 
 	"github.com/BurntSushi/toml"
@@ -26,6 +27,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	log.Init(conf.LogPath, conf.LogLevel)
+	defer log.Sync()
+	log.New("main").Info("xxx start run!!!")
 	if conf.Node == "data" {
 		runConsensusNode(&conf)
 	} else {
@@ -39,6 +43,8 @@ type config struct {
 	Chain     *chain.Conf
 	Node      string // consensus, data or normal
 	FundAddr  string
+	LogPath   string
+	LogLevel  string
 }
 
 func runConsensusNode(conf *config) {

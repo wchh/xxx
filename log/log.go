@@ -3,38 +3,71 @@ package log
 import (
 	"os"
 
-	// "github.com/33cn/chain33/common/log/log15"
-
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
-// type Log = log15.Logger
-
-// func New(s ...string) Log {
-// 	return log15.New(s)
-// }
-
-type Logger = logrus.Entry
-
-func NewLogger(m string) *Logger {
-	return logrus.WithField("mode", m)
+func newEncoderConfig() zapcore.EncoderConfig {
+	return zapcore.EncoderConfig{
+		TimeKey:        "ts",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		FunctionKey:    zapcore.OmitKey,
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.CapitalColorLevelEncoder,
+		EncodeTime:     zapcore.TimeEncoderOfLayout("2006-01-02 15:04:05.000"),
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
 }
 
-func Set(fpath, level string) {
-	file, err := os.OpenFile("logrus.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+func Init(path, level string) {
+	wr := zapcore.AddSync(os.Stdout)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err == nil {
-		logrus.Out = file
+		wr = zapcore.NewMultiWriteSyncer(wr, zapcore.AddSync(file))
 	} else {
-		logrus.Info("Failed to log to file, using default stderr")
+		zap.S().DPanic(err)
 	}
+	atom := zap.NewAtomicLevelAt(conv_level(level))
+	core := zapcore.NewCore(
+		zapcore.NewConsoleEncoder(newEncoderConfig()),
+		wr,
+		atom,
+	)
+	logger := zap.New(core, zap.AddCaller(), zap.Development())
+	zap.ReplaceGlobals(logger)
+}
+
+func Sync() {
+	zap.L().Sync()
+}
+
+type Logger = zap.SugaredLogger
+
+func New(m string) *Logger {
+	return zap.S().With("mod", m)
+}
+
+func conv_level(level string) zapcore.Level {
 	switch level {
 	case "info":
-		logrus.Level = logrus.Info
+		return zap.InfoLevel
 	case "debug":
+		return zap.DebugLevel
 	case "error":
+		return zap.ErrorLevel
 	case "warning":
+		return zap.WarnLevel
 	case "panic":
+		return zap.PanicLevel
 	case "fatal":
-
+		return zap.FatalLevel
 	}
+	return zap.InfoLevel
 }
+
+// type F = log.Fields
