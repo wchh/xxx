@@ -39,9 +39,13 @@ func (tx *Tx) Verify() bool {
 	return r
 }
 
+func (h *Header) Hash() []byte {
+	data, _ := Marshal(h)
+	return crypto.Hash(data)
+}
+
 func (b *Block) Hash() []byte {
-	msg, _ := Marshal(b)
-	return msg
+	return b.Header.Hash()
 }
 
 func (s *Sortition) Sign(priv crypto.PrivateKey) {

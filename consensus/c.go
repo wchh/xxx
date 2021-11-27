@@ -145,70 +145,70 @@ func (c *Consensus) GenesisBlock() (*types.Block, error) {
 	}, nil
 }
 
-func (c *Consensus) handleP2pMsg(m *p2p.Msg) {
-	switch m.Topic {
+func (c *Consensus) handleP2pMsg(msg *p2p.Msg) {
+	switch msg.Topic {
 	case p2p.PreBlockTopic:
-		var v types.Block
-		err := types.Unmarshal(m.Data, &v)
+		var m types.PreBlock
+		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handlePreBlock(&v)
+		c.handlePreBlock(&m)
 	case p2p.MakerSortTopic:
-		var v types.Sortition
-		err := types.Unmarshal(m.Data, &v)
+		var m types.Sortition
+		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleMakerSort(&v)
+		c.handleMakerSort(&m)
 	case p2p.CommitteeSortTopic:
-		var v types.Sortition
-		err := types.Unmarshal(m.Data, &v)
+		var m types.Sortition
+		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleCommitteeSort(&v)
+		c.handleCommitteeSort(&m)
 	case p2p.MakerVoteTopic:
-		var v types.CommitteeVote
-		err := types.Unmarshal(m.Data, &v)
+		var m types.CommitteeVote
+		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleMakerVote(&v)
+		c.handleMakerVote(&m)
 	case p2p.CommitteeVoteTopic:
-		var v types.CommitteeVote
-		err := types.Unmarshal(m.Data, &v)
+		var m types.CommitteeVote
+		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleCommitteeVote(&v)
+		c.handleCommitteeVote(&m)
 	case p2p.BlockVoteTopic:
-		var v types.Vote
-		err := types.Unmarshal(m.Data, &v)
+		var m types.Vote
+		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleBlockVote(&v)
+		c.handleBlockVote(&m)
 	case p2p.ConsensusBlockTopic:
-		var b types.NewBlock
-		err := types.Unmarshal(m.Data, &b)
+		var m types.NewBlock
+		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleConsensusBlock(&b)
+		c.handleConsensusBlock(&m)
 	case p2p.BlocksReplyTopic:
-		var b types.BlocksReply
-		err := types.Unmarshal(m.Data, &b)
+		var m types.BlocksReply
+		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleBlocksReply(&b)
+		c.handleBlocksReply(&m)
 	}
 }
 
 func (c *Consensus) Run() {
 	go runRpc(c.RpcAddr, c)
-	go c.runSync()
+	c.sync()
 	c.ConsensusRun()
 }
 
@@ -310,8 +310,8 @@ func (c *Consensus) makeBlock(pb *types.Block, round int) {
 	c.handleConsensusBlock(nb)
 }
 
-func (c *Consensus) handlePreBlock(b *types.Block) {
-	c.preblock_mp[b.Header.Height] = b
+func (c *Consensus) handlePreBlock(b *types.PreBlock) {
+	c.preblock_mp[b.B.Header.Height] = b.B
 }
 
 func (c *Consensus) handleMakerVote(v *types.CommitteeVote) {
@@ -333,6 +333,29 @@ func (c *Consensus) handleCommitteeVote(v *types.CommitteeVote) {
 		}
 		comm.svmp[string(h)] += len(v.MyHashs)
 	}
+}
+
+const lastHeaderKey = "lastheader"
+
+func writeLastHeader(h *types.Header, db db.KV) error {
+	data, err := types.Marshal(h)
+	if err != nil {
+		return err
+	}
+	return db.Set([]byte(lastHeaderKey), data)
+}
+
+func readLastHeader(db db.KV) (*types.Header, error) {
+	val, err := db.Get([]byte(lastHeaderKey))
+	if err != nil {
+		return nil, err
+	}
+	h := new(types.Header)
+	err = types.Unmarshal(val, h)
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
 }
 
 func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
@@ -360,6 +383,8 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 	rtxs = rtxs[:index]
 	b.Header.TxsHash = types.TxsMerkel(rtxs)
 	b.Txs = rtxs
+
+	writeLastHeader(b.Header, db)
 
 	comm := c.getCommittee(b.Header.Height, int(b.Header.Round))
 	comm.db = db
@@ -399,6 +424,12 @@ func (c *Consensus) execBlock(b *types.Block) error {
 			return err
 		}
 	}
+
+	err = writeLastHeader(b.Header, kv)
+	if err != nil {
+		return err
+	}
+
 	err = t.Write(kv.B)
 	if err != nil {
 		return err
@@ -439,9 +470,13 @@ func (c *Consensus) setBlock(hash string, height int64, round int) {
 		comm.b = b
 	}
 
+	c.addNewBlock(b)
+	c.n.Publish(p2p.NewBlockTopic, nb)
+}
+
+func (c *Consensus) addNewBlock(b *types.Block) {
 	c.lastBlock = b // b is complete block
 	c.block_mp[b.Header.Height] = b
-	c.n.Publish(p2p.NewBlockTopic, nb)
 	go func() {
 		c.nbch <- b
 	}()
@@ -492,7 +527,7 @@ func (c *Consensus) difficulty(t, r int, h int64) float64 {
 func (c *Consensus) verifySort(s *types.Sortition) error {
 	height := s.Proof.Input.Height
 	round := int(s.Proof.Input.Round)
-	b, ok := c.block_mp[height-10]
+	b, ok := c.block_mp[height-int64(c.AdvSortBlocks)]
 	if !ok {
 		return fmt.Errorf("verifySort error: NO block in the cache. height=%d", height)
 	}
@@ -689,7 +724,22 @@ func (c *Consensus) getDataNode() *types.PeerInfo {
 	return nil
 }
 
-func (c *Consensus) runSync() {
+func (c *Consensus) sync() {
+	lastHeader, err := readLastHeader(c.db)
+	if err != nil {
+		clog.Errorw("readLastHeader error", "err", err)
+		gb, err := c.GenesisBlock()
+		if err != nil {
+			clog.Panicw("GenesisBlock panic", "err", err)
+		}
+		err = c.execBlock(gb)
+		if err != nil {
+			clog.Panicw("GenesisBlock panic", "err", err)
+		}
+		c.addNewBlock(gb)
+	} else {
+		c.addNewBlock(&types.Block{Header: lastHeader})
+	}
 	synced := false
 	for !synced {
 		br, err := c.rpcGetBlocks(c.lastBlock.Header.Height+1, 10, "GetBlocks")

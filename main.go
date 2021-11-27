@@ -27,9 +27,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	log.Init(conf.LogPath, conf.LogLevel)
 	defer log.Sync()
 	log.New("main").Info("xxx start run!!!")
+
 	if conf.Node == "data" {
 		runConsensusNode(&conf)
 	} else {

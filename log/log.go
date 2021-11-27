@@ -69,5 +69,3 @@ func conv_level(level string) zapcore.Level {
 	}
 	return zap.InfoLevel
 }
-
-// type F = log.Fields
