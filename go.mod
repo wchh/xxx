@@ -24,7 +24,8 @@ require (
 require (
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce
 	github.com/libp2p/go-msgio v0.0.6
-	github.com/sirupsen/logrus v1.8.1
+	github.com/pierrec/lz4 v2.0.5+incompatible
+	go.uber.org/zap v1.19.1
 )
 
 require (
@@ -171,7 +172,6 @@ require (
 	go.opentelemetry.io/otel/trace v0.20.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.7.0 // indirect
-	go.uber.org/zap v1.19.1 // indirect
 	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519 // indirect
 	golang.org/x/mod v0.5.0 // indirect
 	golang.org/x/net v0.0.0-20211005001312-d4b1ae081e3b // indirect
