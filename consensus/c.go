@@ -57,6 +57,7 @@ type Consensus struct {
 
 	vbch chan hr
 	nbch chan *types.Block
+	mch  chan *p2p.Tmsg
 }
 
 func New(conf *Conf, n *p2p.Node, c *contract.Container) (*Consensus, error) {
@@ -82,6 +83,7 @@ func New(conf *Conf, n *p2p.Node, c *contract.Container) (*Consensus, error) {
 
 		vbch: make(chan hr, 1),
 		nbch: make(chan *types.Block, 1),
+		mch:  make(chan *p2p.Tmsg, 32),
 	}, nil
 }
 
@@ -145,7 +147,40 @@ func (c *Consensus) GenesisBlock() (*types.Block, error) {
 	}, nil
 }
 
-func (c *Consensus) handleP2pMsg(msg *p2p.Msg) {
+func (c *Consensus) handleP2pMsg(msg *p2p.Tmsg) {
+	switch msg.Topic {
+	case p2p.PreBlockTopic:
+		c.handlePreBlock(msg.Msg.(*types.PreBlock))
+	case p2p.MakerSortTopic:
+		c.handleMakerSort(msg.Msg.(*types.Sortition))
+	case p2p.CommitteeSortTopic:
+		c.handleCommitteeSort(msg.Msg.(*types.Sortition))
+	case p2p.MakerVoteTopic:
+		c.handleMakerVote(msg.Msg.(*types.CommitteeVote))
+	case p2p.CommitteeVoteTopic:
+		c.handleCommitteeVote(msg.Msg.(*types.CommitteeVote))
+	case p2p.BlockVoteTopic:
+		c.handleBlockVote(msg.Msg.(*types.Vote))
+	case p2p.ConsensusBlockTopic:
+		c.handleConsensusBlock(msg.Msg.(*types.NewBlock))
+	case p2p.BlocksReplyTopic:
+		c.handleBlocksReply(msg.Msg.(*types.BlocksReply))
+	}
+}
+
+func (c *Consensus) readP2pMsg() {
+	for msg := range c.n.C {
+		tm, err := c.decodeP2pMsg(msg)
+		if err != nil {
+			clog.Errorw("decdoeP2pMsg error", "err", err)
+			continue
+		}
+		c.mch <- tm
+	}
+}
+
+func (c *Consensus) decodeP2pMsg(msg *p2p.Msg) (*p2p.Tmsg, error) {
+	var umsg types.Message
 	switch msg.Topic {
 	case p2p.PreBlockTopic:
 		var m types.PreBlock
@@ -153,62 +188,64 @@ func (c *Consensus) handleP2pMsg(msg *p2p.Msg) {
 		if err != nil {
 			panic(err)
 		}
-		c.handlePreBlock(&m)
+		umsg = &m
 	case p2p.MakerSortTopic:
 		var m types.Sortition
 		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleMakerSort(&m)
+		umsg = &m
 	case p2p.CommitteeSortTopic:
 		var m types.Sortition
 		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleCommitteeSort(&m)
+		umsg = &m
 	case p2p.MakerVoteTopic:
 		var m types.CommitteeVote
 		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleMakerVote(&m)
+		umsg = &m
 	case p2p.CommitteeVoteTopic:
 		var m types.CommitteeVote
 		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleCommitteeVote(&m)
+		umsg = &m
 	case p2p.BlockVoteTopic:
 		var m types.Vote
 		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleBlockVote(&m)
+		umsg = &m
 	case p2p.ConsensusBlockTopic:
 		var m types.NewBlock
 		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleConsensusBlock(&m)
+		umsg = &m
 	case p2p.BlocksReplyTopic:
 		var m types.BlocksReply
 		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		c.handleBlocksReply(&m)
+		umsg = &m
 	}
+	return &p2p.Tmsg{PID: msg.PID, Topic: msg.Topic, Msg: umsg}, nil
 }
 
 func (c *Consensus) Run() {
 	go runRpc(c.RpcAddr, c)
 	c.sync()
+	go c.readP2pMsg()
 	c.ConsensusRun()
 }
 
@@ -230,7 +267,7 @@ func (c *Consensus) ConsensusRun() {
 
 	for {
 		select {
-		case msg := <-c.n.C:
+		case msg := <-c.mch:
 			c.handleP2pMsg(msg)
 		case hr := <-c.vbch:
 			c.voteBlock(hr.h, hr.r)

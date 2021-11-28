@@ -42,13 +42,13 @@ type Node struct {
 	smap map[string]stream
 
 	C    chan *Msg
-	smch chan *sdmsg
+	smch chan *Tmsg
 }
 
-type sdmsg struct {
-	pid   string
-	topic string
-	msg   types.Message
+type Tmsg struct {
+	PID   string
+	Topic string
+	Msg   types.Message
 }
 
 // const defaultMaxSize = 1024 * 1024
@@ -93,7 +93,7 @@ func NewNode(conf *Conf) (*Node, error) {
 		tmap: make(map[string]*pubsub.Topic),
 		smap: make(map[string]stream),
 		C:    make(chan *Msg, 64),
-		smch: make(chan *sdmsg, 1),
+		smch: make(chan *Tmsg, 1),
 	}
 	g.setHandler()
 	topics := conf.Topics
@@ -213,22 +213,22 @@ func (g *Node) newStream(pid string) (stream, error) {
 func (g *Node) handleOutgoing() {
 	for {
 		m := <-g.smch
-		s, err := g.newStream(m.pid)
+		s, err := g.newStream(m.PID)
 		if err != nil {
 			plog.Errorw("new stream error", "err", err)
 			continue
 		}
-		data, err := types.Marshal(m.msg)
+		data, err := types.Marshal(m.Msg)
 		if err != nil {
 			plog.Errorw("new stream error", "err", err)
 			continue
 		}
 
-		err = s.WriteMsg(&types.Msg{Topic: m.topic, Data: data})
+		err = s.WriteMsg(&types.Msg{Topic: m.Topic, Data: data})
 		if err != nil {
 			plog.Errorw("write msg error", "err", err)
 			s.Close()
-			delete(g.smap, m.pid)
+			delete(g.smap, m.PID)
 		}
 	}
 }
@@ -286,7 +286,7 @@ func (g *Node) publish(topic string, data []byte) error {
 }
 
 func (g *Node) Send(pid, topic string, msg types.Message) error {
-	g.smch <- &sdmsg{pid, topic, msg}
+	g.smch <- &Tmsg{pid, topic, msg}
 	return nil
 }
 
