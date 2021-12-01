@@ -5,74 +5,63 @@ package xxx
 
 import (
 	"flag"
+	"os"
 
 	"xxx/chain"
+	"xxx/config"
 	"xxx/consensus"
 	"xxx/contract"
 	"xxx/contract/coin"
 	"xxx/contract/ycc"
 	"xxx/log"
-	"xxx/p2p"
 
 	"github.com/BurntSushi/toml"
 )
 
 var confPath = flag.String("c", "xxx.toml", "config path")
 
+type Config = config.Config
+
 func main() {
 	flag.Parse()
 
-	var conf config
+	var conf Config
 	_, err := toml.DecodeFile(*confPath, &conf)
 	if err != nil {
-		panic(err)
+		f, err := os.OpenFile(*confPath, os.O_CREATE|os.O_APPEND, os.ModePerm)
+		if err != nil {
+			panic(err)
+		}
+		encoder := toml.NewEncoder(f)
+		encoder.Encode(conf)
+		return
 	}
 
 	log.Init(conf.LogPath, conf.LogLevel)
 	defer log.Sync()
 	log.New("main").Info("xxx start run!!!")
 
-	if conf.Node == "data" {
+	if conf.NodeType == "data" {
 		runConsensusNode(&conf)
 	} else {
 		runDataNode(&conf)
 	}
 }
 
-type config struct {
-	Consensus *consensus.Conf
-	P2P       *p2p.Conf
-	Chain     *chain.Conf
-	Node      string // consensus, data or normal
-	FundAddr  string
-	LogPath   string
-	LogLevel  string
-}
-
-func runConsensusNode(conf *config) {
+func runConsensusNode(conf *Config) {
 	cc := contract.New(conf.FundAddr)
 	coin.Init(cc)
 	ycc.Init(cc)
 
-	node, err := p2p.NewNode(conf.P2P)
-	if err != nil {
-		panic(err)
-	}
-
-	consensus, err := consensus.New(conf.Consensus, node, cc)
+	consensus, err := consensus.New(conf, cc)
 	if err != nil {
 		panic(err)
 	}
 	consensus.Run()
 }
 
-func runDataNode(conf *config) {
-	node, err := p2p.NewNode(conf.P2P)
-	if err != nil {
-		panic(err)
-	}
-
-	ch, err := chain.New(conf.Chain, node)
+func runDataNode(conf *Config) {
+	ch, err := chain.New(conf)
 	if err != nil {
 		panic(err)
 	}

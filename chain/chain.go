@@ -3,35 +3,47 @@ package chain
 import (
 	"fmt"
 
+	"xxx/config"
 	"xxx/db"
 	"xxx/p2p"
 	"xxx/types"
 )
 
-type Conf struct {
-	RpcAddr    string
-	ServerAddr string
-	DataPath   string
-}
+// type Conf struct {
+// 	RpcAddr    string
+// 	ServerAddr string
+// 	DataPath   string
+// }
+
+// var DefaultConf = &Conf{
+// 	DataPath:   "data",
+// 	RpcAddr:    ":12223",
+// 	ServerAddr: ":12123",
+// }
 
 type Chain struct {
-	*Conf
+	*config.Config
 	curHeight int64
 	n         *p2p.Node
 	db        db.DB
 	bm        map[int64]*types.Block
 }
 
-func New(conf *Conf, n *p2p.Node) (*Chain, error) {
+func New(conf *config.Config) (*Chain, error) {
 	ldb, err := db.NewLDB(conf.DataPath)
 	if err != nil {
 		return nil, err
 	}
+	p2pConf := &p2p.Conf{}
+	node, err := p2p.NewNode(p2pConf)
+	if err != nil {
+		return nil, err
+	}
 	return &Chain{
-		Conf: conf,
-		db:   ldb,
-		n:    n,
-		bm:   make(map[int64]*types.Block),
+		Config: conf,
+		db:     ldb,
+		n:      node,
+		bm:     make(map[int64]*types.Block),
 	}, nil
 }
 
@@ -62,7 +74,7 @@ func (c *Chain) handleP2pMsg(m *p2p.Msg) {
 }
 
 func (c *Chain) Run() {
-	go runRpc(c.RpcAddr, c)
+	go runRpc(fmt.Sprintf("%d", c.RpcPort), c)
 	for m := range c.n.C {
 		c.handleP2pMsg(m)
 	}

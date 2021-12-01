@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"xxx/config"
 	"xxx/contract"
 	"xxx/contract/coin"
 	"xxx/contract/ycc"
@@ -18,29 +19,13 @@ import (
 
 var clog = log.New("consensus")
 
-type Conf struct {
-	PrivateSeed   string
-	DataPath      string
-	ServerAddr    string
-	RpcAddr       string
-	GenesisAddr   string
-	DataNode      string
-	VotePrice     int64
-	TxFee         int64
-	AdvSortBlocks int
-	AdvVoteBlocks int
-	CpuNum        int
-	CheckSig      bool
-	Single        bool
-}
-
 type hr struct {
 	h int64
 	r int
 }
 
 type Consensus struct {
-	*Conf
+	*config.Config
 	n         *p2p.Node
 	db        db.DB
 	c         *contract.Container
@@ -60,7 +45,7 @@ type Consensus struct {
 	mch  chan *p2p.Tmsg
 }
 
-func New(conf *Conf, n *p2p.Node, c *contract.Container) (*Consensus, error) {
+func New(conf *config.Config, c *contract.Container) (*Consensus, error) {
 	ldb, err := db.NewLDB(conf.DataPath)
 	if err != nil {
 		return nil, err
@@ -68,12 +53,19 @@ func New(conf *Conf, n *p2p.Node, c *contract.Container) (*Consensus, error) {
 	if conf.VotePrice == 0 {
 		conf.VotePrice = 10000
 	}
+	priv := crypto.NewKeyFromSeed([]byte(conf.PrivateSeed))
+	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort}
+	node, err := p2p.NewNode(p2pConf)
+	if err != nil {
+		return nil, err
+	}
 	return &Consensus{
-		Conf:          conf,
-		n:             n,
+		priv:          priv,
+		Config:        conf,
+		n:             node,
 		db:            ldb,
 		c:             c,
-		myAddr:        crypto.PubkeyToAddr(n.Priv.PublicKey()),
+		myAddr:        crypto.PubkeyToAddr(priv.PublicKey()),
 		maker_mp:      make(map[int64]map[int]*maker),
 		committee_mp:  make(map[int64]map[int]*committee),
 		preblock_mp:   make(map[int64]*types.Block),
@@ -83,7 +75,7 @@ func New(conf *Conf, n *p2p.Node, c *contract.Container) (*Consensus, error) {
 
 		vbch: make(chan hr, 1),
 		nbch: make(chan *types.Block, 1),
-		mch:  make(chan *p2p.Tmsg, 32),
+		mch:  make(chan *p2p.Tmsg, 256),
 	}, nil
 }
 
@@ -117,15 +109,16 @@ func (c *Consensus) clean(height int64) {
 }
 
 func (c *Consensus) GenesisBlock() (*types.Block, error) {
-	tx0, err := coin.CreateIssueTx(coin.CoinX*1000000000, c.c)
+	tx0, err := coin.CreateIssueTx(coin.CoinX*1e8*100, c.c)
 	if err != nil {
 		return nil, err
 	}
-	tx1, err := coin.CreateTransferTx(nil, c.myAddr, 10000*c.VotePrice, 0)
+	amount := 10000 * coin.CoinX * c.VotePrice
+	tx1, err := coin.CreateTransferTx(nil, c.myAddr, amount, 0)
 	if err != nil {
 		return nil, err
 	}
-	tx2, err := ycc.CreateDepositTx(nil, c.myAddr, 10000*c.VotePrice, 0)
+	tx2, err := ycc.CreateDepositTx(nil, c.myAddr, amount, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +236,7 @@ func (c *Consensus) decodeP2pMsg(msg *p2p.Msg) (*p2p.Tmsg, error) {
 }
 
 func (c *Consensus) Run() {
-	go runRpc(c.RpcAddr, c)
+	go runRpc(fmt.Sprintf(":%d", c.RpcPort), c)
 	c.sync()
 	go c.readP2pMsg()
 	c.ConsensusRun()
@@ -348,6 +341,11 @@ func (c *Consensus) makeBlock(pb *types.Block, round int) {
 }
 
 func (c *Consensus) handlePreBlock(b *types.PreBlock) {
+	txs := b.B.Txs
+	if c.CheckSig {
+		txs, _, _ = txsVerifySig(txs, 8, false)
+		b.B.Txs = txs
+	}
 	c.preblock_mp[b.B.Header.Height] = b.B
 }
 
@@ -400,7 +398,7 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 
 	txs := b.Txs
 	if c.CheckSig {
-		txs, failedHash, _ = txsVerifySig(txs, c.CpuNum, false)
+		txs, failedHash, _ = txsVerifySig(txs, 8, false)
 	}
 
 	db := db.NewMDB(c.db)
@@ -449,7 +447,7 @@ func (c *Consensus) execBlock(b *types.Block) error {
 
 	txs := b.Txs
 	if c.CheckSig {
-		txs, _, err = txsVerifySig(txs, c.CpuNum, true)
+		txs, _, err = txsVerifySig(txs, 8, true)
 		if err != nil {
 			return err
 		}
@@ -608,7 +606,7 @@ func (c *Consensus) sortition(b *types.Block, round int) {
 	height := b.Header.Height + int64(c.AdvSortBlocks)
 	seed := b.Hash()
 	c.sortMaker(height, round, int(n/c.VotePrice), seed)
-	c.sortCommittee(height, round, int(n), seed)
+	c.sortCommittee(height, round, int(n/c.VotePrice), seed)
 }
 
 func (c *Consensus) sortMaker(height int64, round, n int, seed []byte) {
@@ -774,6 +772,10 @@ func (c *Consensus) sync() {
 			clog.Panicw("GenesisBlock panic", "err", err)
 		}
 		c.addNewBlock(gb)
+		if c.Single {
+			c.firstSort(gb)
+			return
+		}
 	} else {
 		c.addNewBlock(&types.Block{Header: lastHeader})
 	}
@@ -784,6 +786,25 @@ func (c *Consensus) sync() {
 			clog.Errorw("sync error", "err", err)
 		}
 		synced = c.handleBlocksReply(br)
+	}
+}
+
+func (c *Consensus) firstSort(zb *types.Block) {
+	n, err := ycc.QueryDeposit(c.myAddr, c.db)
+	if err != nil {
+		clog.Errorw("sortition error", "err", err)
+		return
+	}
+
+	seed := zb.Hash()
+	round := 0
+	for i := int64(0); i < int64(c.AdvSortBlocks)+1; i++ {
+		c.sortMaker(i, round, int(n/c.VotePrice), seed)
+		c.sortCommittee(i, round, int(n/c.VotePrice), seed)
+		if i < int64(c.AdvVoteBlocks) {
+			c.voteMaker(i, round)
+			c.voteCommittee(i, round)
+		}
 	}
 }
 

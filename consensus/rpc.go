@@ -49,7 +49,6 @@ func (c *Consensus) QueryVotePrice(ctx context.Context, args *struct{}, reply *i
 
 func runRpc(addr string, c *Consensus) {
 	s := server.NewServer()
-	// s.Register(c, "")
 	s.RegisterName("Consensus", c, "")
 	go s.Serve("tcp", addr)
 }
