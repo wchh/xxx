@@ -1,4 +1,4 @@
-package cli
+package main
 
 //lint:file-ignore U1000 Ignore all unused code
 
@@ -24,7 +24,9 @@ var xclient client.XClient
 func main() {
 	var rpcAddr string
 	var service string
-	defer xclient.Close()
+	if xclient != nil {
+		defer xclient.Close()
+	}
 
 	app := &cli.App{
 		Name:  "xxx-cli",
@@ -59,6 +61,20 @@ func main() {
 			return nil
 		},
 		Commands: []*cli.Command{
+			{
+				Name:  "key",
+				Usage: "gen 25519 key pair and address",
+				Action: func(c *cli.Context) error {
+					sk, err := crypto.NewKey()
+					if err != nil {
+						return err
+					}
+					fmt.Println("sk:", sk)
+					fmt.Println("pk:", sk.PublicKey())
+					fmt.Println("address:", sk.PublicKey().Address())
+					return nil
+				},
+			},
 			{
 				Name:  "block",
 				Usage: "query block by hash or by height",

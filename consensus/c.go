@@ -25,7 +25,10 @@ type hr struct {
 }
 
 type Consensus struct {
-	*config.Config
+	*config.ConsensusConfig
+	chid      string
+	version   string
+	rpcPort   int
 	n         *p2p.Node
 	db        db.DB
 	c         *contract.Container
@@ -50,28 +53,31 @@ func New(conf *config.Config, c *contract.Container) (*Consensus, error) {
 	if err != nil {
 		return nil, err
 	}
-	if conf.VotePrice == 0 {
-		conf.VotePrice = 10000
+	if conf.Consensus.VotePrice == 0 {
+		conf.Consensus.VotePrice = 10000
 	}
-	priv := crypto.NewKeyFromSeed([]byte(conf.PrivateSeed))
+	priv := crypto.NewKeyFromSeed([]byte(conf.Consensus.PrivateSeed))
 	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort}
 	node, err := p2p.NewNode(p2pConf)
 	if err != nil {
 		return nil, err
 	}
 	return &Consensus{
-		priv:          priv,
-		Config:        conf,
-		n:             node,
-		db:            ldb,
-		c:             c,
-		myAddr:        crypto.PubkeyToAddr(priv.PublicKey()),
-		maker_mp:      make(map[int64]map[int]*maker),
-		committee_mp:  make(map[int64]map[int]*committee),
-		preblock_mp:   make(map[int64]*types.Block),
-		alldeposit_mp: make(map[int64]int),
-		block_mp:      make(map[int64]*types.Block),
-		peer_mp:       make(map[string]*types.PeerInfo),
+		chid:            conf.ChainID,
+		version:         conf.Version,
+		rpcPort:         conf.RpcPort,
+		priv:            priv,
+		ConsensusConfig: conf.Consensus,
+		n:               node,
+		db:              ldb,
+		c:               c,
+		myAddr:          crypto.PubkeyToAddr(priv.PublicKey()),
+		maker_mp:        make(map[int64]map[int]*maker),
+		committee_mp:    make(map[int64]map[int]*committee),
+		preblock_mp:     make(map[int64]*types.Block),
+		alldeposit_mp:   make(map[int64]int),
+		block_mp:        make(map[int64]*types.Block),
+		peer_mp:         make(map[string]*types.PeerInfo),
 
 		vbch: make(chan hr, 1),
 		nbch: make(chan *types.Block, 1),
@@ -236,7 +242,7 @@ func (c *Consensus) decodeP2pMsg(msg *p2p.Msg) (*p2p.Tmsg, error) {
 }
 
 func (c *Consensus) Run() {
-	go runRpc(fmt.Sprintf(":%d", c.RpcPort), c)
+	go runRpc(fmt.Sprintf(":%d", c.rpcPort), c)
 	c.sync()
 	go c.readP2pMsg()
 	c.ConsensusRun()

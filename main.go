@@ -1,10 +1,12 @@
 // xxx chain
 //lint:file-ignore U1000 Ignore all unused code
 
-package xxx
+package main
 
 import (
+	"bytes"
 	"flag"
+	"fmt"
 	"os"
 
 	"xxx/chain"
@@ -25,15 +27,17 @@ type Config = config.Config
 func main() {
 	flag.Parse()
 
-	var conf Config
-	_, err := toml.DecodeFile(*confPath, &conf)
+	conf := config.DefaultConfig
+	_, err := toml.DecodeFile(*confPath, conf)
 	if err != nil {
-		f, err := os.OpenFile(*confPath, os.O_CREATE|os.O_APPEND, os.ModePerm)
+		buf := new(bytes.Buffer)
+		encoder := toml.NewEncoder(buf)
+		err = encoder.Encode(conf)
 		if err != nil {
 			panic(err)
 		}
-		encoder := toml.NewEncoder(f)
-		encoder.Encode(conf)
+		fmt.Println(buf.String())
+		os.WriteFile(*confPath, buf.Bytes(), 0666)
 		return
 	}
 
@@ -41,10 +45,12 @@ func main() {
 	defer log.Sync()
 	log.New("main").Info("xxx start run!!!")
 
-	if conf.NodeType == "data" {
-		runConsensusNode(&conf)
+	if conf.NodeType == "consensus" {
+		runConsensusNode(conf)
+	} else if conf.NodeType == "data" {
+		runDataNode(conf)
 	} else {
-		runDataNode(&conf)
+		panic("not support")
 	}
 }
 

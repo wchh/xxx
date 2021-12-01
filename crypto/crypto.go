@@ -40,7 +40,7 @@ func (priv PrivateKey) PublicKey() PublicKey {
 }
 
 func (priv PrivateKey) String() string {
-	return hex.EncodeToString(priv)
+	return hex.EncodeToString(priv[:32])
 }
 
 func PrivateKeyFromString(s string) (PrivateKey, error) {
@@ -65,6 +65,10 @@ func DoubleHash(msg []byte) []byte {
 
 func (pub PublicKey) Address() string {
 	return base58.Encode(pub[:20])
+}
+
+func (pub PublicKey) String() string {
+	return hex.EncodeToString(pub)
 }
 
 func NewAddress(hash []byte) string {
