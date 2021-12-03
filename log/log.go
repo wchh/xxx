@@ -32,11 +32,10 @@ func Init(path, level string) {
 	} else {
 		zap.S().DPanic(err)
 	}
-	atom := zap.NewAtomicLevelAt(conv_level(level))
 	core := zapcore.NewCore(
 		zapcore.NewConsoleEncoder(newEncoderConfig()),
 		wr,
-		atom,
+		conv_level(level),
 	)
 	logger := zap.New(core, zap.AddCaller(), zap.Development())
 	zap.ReplaceGlobals(logger)

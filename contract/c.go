@@ -2,10 +2,14 @@ package contract
 
 import (
 	"errors"
+	"xxx/config"
 	"xxx/crypto"
 	"xxx/db"
+	"xxx/log"
 	"xxx/types"
 )
+
+var clog *log.Logger
 
 type feeContract interface {
 	Fee(from string, amount int64) error
@@ -27,23 +31,17 @@ type Contract interface {
 // func (b *Base) Name() string                  { return "base" }
 // func (b *Base) Clone() Contract               { return nil }
 // func (b *Base) GetDB() *db.StateDB            { return b.db }
-type Conf struct {
-	FundAddr    string
-	GenesisAddr string
-	ManagetAddr string
-	VotePrice   int64
-	TxFee       int64
-}
 
 type Container struct {
-	*Conf
+	*config.ConstractConfig
 	contractMap map[string]Contract
 	db          db.KV
 	height      int64
 }
 
-func New(fund string) *Container {
-	c := &Container{contractMap: make(map[string]Contract)}
+func New(conf *config.ConstractConfig) *Container {
+	clog = log.New("contract")
+	c := &Container{contractMap: make(map[string]Contract), ConstractConfig: conf}
 	// c.Register(&Base{db: db})
 	return c
 }
@@ -78,8 +76,8 @@ func (cl *Container) processFee(from string) error {
 }
 
 func (cl *Container) ExecTx(tx *types.Tx) error {
+	clog.Infow("container.ExecTx", "contract", tx.Contract, "op", tx.Op, "to", tx.To)
 	from := crypto.PubkeyToAddr(tx.Sig.PublicKey)
-
 	if cl.height != 0 {
 		err := cl.processFee(from)
 		if err != nil {

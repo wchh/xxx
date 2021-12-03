@@ -1,8 +1,7 @@
 ChainID = "xxx"
 DataPath = "data"
-FundAddr = "2txyQ8pGDRfHHeoPikeJ2tcemiVt"
 LogLevel = "debug"
-LogPath = "log"
+LogPath = "xxx.log"
 NodeType = "consensus"
 RpcPort = 12223
 ServerPort = 12123
@@ -12,8 +11,14 @@ Version = "0.0.1"
 AdvSortBlocks = 10
 AdvVoteBlocks = 5
 CheckSig = true
-GenesisAddr = ""
+GenesisDepositAmount = 1000
+GenesisIssueAmount = 10000000000
+GenesisSeed = "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05"
 PrivateSeed = "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05"
 Single = true
-TxFee = 1000
 VotePrice = 1000
+
+[Contract]
+FundAddr = "3ftLmbf3MEPXTJYmd4HsRtKqUgy"
+GenesisAddr = "3VB31vq79eWwikFTFZknfYm9jJgC"
+TxFee = 1000

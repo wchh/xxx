@@ -38,11 +38,15 @@ func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][
 		}()
 	}
 
+	wg2 := new(sync.WaitGroup)
+	wg2.Add(2)
 	var rtxs []*types.Tx
 	go func() {
 		for tx := range tch {
 			rtxs = append(rtxs, tx)
 		}
+		clog.Info("aha go here0")
+		wg2.Done()
 	}()
 
 	var rhs [][]byte
@@ -50,6 +54,8 @@ func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][
 		for h := range hch {
 			rhs = append(rhs, h)
 		}
+		clog.Info("aha go here1")
+		wg2.Done()
 	}()
 
 	done2 := make(chan struct{})
@@ -74,9 +80,10 @@ func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][
 	case <-done:
 	}
 
+	clog.Info("aha go here3")
 	wg.Wait()
-	close(ch)
 	close(tch)
 	close(hch)
+	wg2.Wait()
 	return rtxs, rhs, err
 }

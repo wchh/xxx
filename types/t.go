@@ -27,8 +27,7 @@ func (tx *Tx) Hash() []byte {
 func (tx *Tx) Sign(priv crypto.PrivateKey) {
 	tx.Sig = nil
 	sig := crypto.Sign(priv, tx.Hash())
-	tx.Sig.PublicKey = priv.PublicKey()
-	tx.Sig.Signature = sig
+	tx.Sig = &Signature{PublicKey: priv.PublicKey(), Signature: sig}
 }
 
 func (tx *Tx) Verify() bool {
@@ -55,8 +54,7 @@ func (s *Sortition) Sign(priv crypto.PrivateKey) {
 		panic(err)
 	}
 	sig := crypto.Sign(priv, buf)
-	s.Sig.PublicKey = priv.PublicKey()
-	s.Sig.Signature = sig
+	s.Sig = &Signature{PublicKey: priv.PublicKey(), Signature: sig}
 }
 
 func (s *Sortition) Verify() bool {
@@ -78,8 +76,7 @@ func (v *Vote) Sign(priv crypto.PrivateKey) {
 		panic(err)
 	}
 	sig := crypto.Sign(priv, buf)
-	v.Sig.PublicKey = priv.PublicKey()
-	v.Sig.Signature = sig
+	v.Sig = &Signature{PublicKey: priv.PublicKey(), Signature: sig}
 }
 
 func (v *Vote) Verify() bool {
@@ -130,8 +127,7 @@ func (v *CommitteeVote) Sign(sk crypto.PrivateKey) {
 		panic(err)
 	}
 	sig := crypto.Sign(sk, buf)
-	v.Sig.PublicKey = sk.PublicKey()
-	v.Sig.Signature = sig
+	v.Sig = &Signature{PublicKey: sk.PublicKey(), Signature: sig}
 }
 
 func (v *CommitteeVote) Verify() bool {
@@ -153,8 +149,7 @@ func (nb *NewBlock) Sign(sk crypto.PrivateKey) {
 		panic(err)
 	}
 	sig := crypto.Sign(sk, buf)
-	nb.Sig.PublicKey = sk.PublicKey()
-	nb.Sig.Signature = sig
+	nb.Sig = &Signature{PublicKey: sk.PublicKey(), Signature: sig}
 }
 
 func (nb *NewBlock) Verify() bool {

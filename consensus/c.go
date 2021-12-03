@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"sort"
@@ -17,7 +18,7 @@ import (
 	"xxx/types"
 )
 
-var clog = log.New("consensus")
+var clog *log.Logger
 
 type hr struct {
 	h int64
@@ -49,14 +50,19 @@ type Consensus struct {
 }
 
 func New(conf *config.Config, c *contract.Container) (*Consensus, error) {
+	clog = log.New("consensus")
 	ldb, err := db.NewLDB(conf.DataPath)
 	if err != nil {
 		return nil, err
 	}
 	if conf.Consensus.VotePrice == 0 {
-		conf.Consensus.VotePrice = 10000
+		conf.Consensus.VotePrice = 1000
 	}
-	priv := crypto.NewKeyFromSeed([]byte(conf.Consensus.PrivateSeed))
+	conf.Consensus.VotePrice *= coin.CoinX
+	priv, err := crypto.PrivateKeyFromString(conf.Consensus.PrivateSeed)
+	if err != nil {
+		return nil, err
+	}
 	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort}
 	node, err := p2p.NewNode(p2pConf)
 	if err != nil {
@@ -114,21 +120,25 @@ func (c *Consensus) clean(height int64) {
 	}
 }
 
-func (c *Consensus) GenesisBlock() (*types.Block, error) {
-	tx0, err := coin.CreateIssueTx(coin.CoinX*1e8*100, c.c)
+func (c *Consensus) genesisBlock() (*types.Block, error) {
+	gsk, err := crypto.PrivateKeyFromString(c.GenesisSeed)
+	if err != nil {
+		clog.Errorw("GenesisSeed error", "err", err)
+		return nil, err
+	}
+
+	ia := coin.CoinX * c.GenesisIssueAmount
+	gaddr := gsk.PublicKey().Address()
+	tx0, err := coin.CreateIssueTx(gsk, gaddr, ia)
 	if err != nil {
 		return nil, err
 	}
-	amount := 10000 * coin.CoinX * c.VotePrice
-	tx1, err := coin.CreateTransferTx(nil, c.myAddr, amount, 0)
+	da := c.GenesisDepositAmount * c.VotePrice
+	tx1, err := ycc.CreateDepositTx(gsk, gaddr, da, 0)
 	if err != nil {
 		return nil, err
 	}
-	tx2, err := ycc.CreateDepositTx(nil, c.myAddr, amount, 0)
-	if err != nil {
-		return nil, err
-	}
-	txs := []*types.Tx{tx0, tx1, tx2}
+	txs := []*types.Tx{tx0, tx1}
 	merkel := types.TxsMerkel(txs)
 
 	var nilHash [32]byte
@@ -249,6 +259,7 @@ func (c *Consensus) Run() {
 }
 
 func (c *Consensus) handleNewblock(b *types.Block, round int) {
+	clog.Infow("handleNewblock", "height", b.Header.Height)
 	c.makeBlock(b, round)
 	c.sortition(b, round)
 	c.voteMaker(b.Header.Height+int64(c.AdvVoteBlocks), round)
@@ -296,22 +307,26 @@ func (c *Consensus) ConsensusRun() {
 }
 
 func (c *Consensus) makeBlock(pb *types.Block, round int) {
+	clog.Infow("makeBlock", "height", pb.Header.Height, "round", round)
 	height := pb.Header.Height + 1
 	c.getCommittee(height, round).setCommittee()
 
 	lh := string(c.lastBlock.Hash())
 	comm := c.getCommittee(pb.Header.Height, int(pb.Header.Round))
-	if (types.Votes)(comm.bvs[lh]).Count() < MustVotes {
+	if height > 1 && (types.Votes)(comm.bvs[lh]).Count() < MustVotes {
+		clog.Infow("makeBlock Not enough votes", "height", height, "round", round)
 		return
 	}
 
 	maker := c.getmaker(height, round)
 	maker.setMaker()
 	if maker.my == nil {
+		clog.Infow("makeBlock Not sort")
 		return
 	}
 	_, ok := maker.mvmp[string(maker.my.Hashs[0].Hash)]
 	if !ok {
+		clog.Infow("makeBlock Not vote maker")
 		return
 	}
 
@@ -332,7 +347,16 @@ func (c *Consensus) makeBlock(pb *types.Block, round int) {
 	tx0.Sign(c.priv)
 	b, ok := c.preblock_mp[height]
 	if !ok {
-		return
+		clog.Infow("makeBlock preBlock not in cache", "height", "height")
+		b = &types.Block{
+			Header: &types.Header{
+				Height: height,
+				// Round:      int32(round),
+				BlockTime:  time.Now().Unix(),
+				ParentHash: pb.Hash(),
+			},
+		}
+		// return
 	}
 	b.Header.Round = int32(round)
 	b.Txs = append([]*types.Tx{tx0}, b.Txs...)
@@ -440,38 +464,40 @@ func doErr(err *error, f func()) {
 }
 
 func (c *Consensus) execBlock(b *types.Block) error {
+	clog.Infow("execBlock", "height", b.Header.Height, "round", b.Header.Round, "ntx", len(b.Txs))
 	t, err := c.db.OpenTransaction()
 	if err != nil {
 		return err
 	}
-	kv := db.NewBKV(t)
-	c.c.SetDB(kv)
+	// kv := db.NewBKV(t)
+	c.c.SetDB(t)
 
 	defer doErr(&err, func() {
 		t.Discard()
 	})
 
 	txs := b.Txs
-	if c.CheckSig {
-		txs, _, err = txsVerifySig(txs, 8, true)
-		if err != nil {
-			return err
-		}
-	}
+	// if c.CheckSig {
+	// 	txs, _, err = txsVerifySig(txs, 8, true)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
 
 	for _, tx := range txs {
 		err = c.c.ExecTx(tx)
 		if err != nil {
+			clog.Errorw("execBlock exectx error", "err", err)
 			return err
 		}
 	}
 
-	err = writeLastHeader(b.Header, kv)
+	err = writeLastHeader(b.Header, t)
 	if err != nil {
 		return err
 	}
 
-	err = t.Write(kv.B)
+	// err = t.Write(kv.B)
 	if err != nil {
 		return err
 	}
@@ -486,7 +512,7 @@ func (c *Consensus) setBlock(hash string, height int64, round int) {
 	}
 
 	b := comm.b
-	if b != nil && string(nb.Header.TxsHash) == string(b.Header.TxsHash) { // my made block is ok
+	if b != nil && bytes.Equal(nb.Header.TxsHash, b.Header.TxsHash) { // my made block is ok
 		comm.db.Commit()
 	} else {
 		pb := c.preblock_mp[height]
@@ -518,6 +544,7 @@ func (c *Consensus) setBlock(hash string, height int64, round int) {
 func (c *Consensus) addNewBlock(b *types.Block) {
 	c.lastBlock = b // b is complete block
 	c.block_mp[b.Header.Height] = b
+	clog.Infow("addNewblock", "height", b.Header.Height)
 	go func() {
 		c.nbch <- b
 	}()
@@ -568,7 +595,11 @@ func (c *Consensus) difficulty(t, r int, h int64) float64 {
 func (c *Consensus) verifySort(s *types.Sortition) error {
 	height := s.Proof.Input.Height
 	round := int(s.Proof.Input.Round)
-	b, ok := c.block_mp[height-int64(c.AdvSortBlocks)]
+	sortHeight := height - int64(c.AdvSortBlocks)
+	if sortHeight < 0 {
+		sortHeight = 0
+	}
+	b, ok := c.block_mp[sortHeight]
 	if !ok {
 		return fmt.Errorf("verifySort error: NO block in the cache. height=%d", height)
 	}
@@ -589,6 +620,7 @@ func (c *Consensus) handleMakerSort(s *types.Sortition) {
 	round := int(s.Proof.Input.Round)
 	comm := c.getCommittee(height, round)
 	comm.mss[string(s.Sig.PublicKey)] = s
+	clog.Infow("handleMakerSort", "height", height, "round", round)
 }
 
 func (c *Consensus) handleCommitteeSort(s *types.Sortition) {
@@ -601,6 +633,7 @@ func (c *Consensus) handleCommitteeSort(s *types.Sortition) {
 	round := int(s.Proof.Input.Round)
 	comm := c.getCommittee(height, round)
 	comm.css[string(s.Sig.PublicKey)] = s
+	clog.Infow("handleCommitteeSort", "height", height, "round", round)
 }
 
 func (c *Consensus) sortition(b *types.Block, round int) {
@@ -622,12 +655,14 @@ func (c *Consensus) sortMaker(height int64, round, n int, seed []byte) {
 		Seed:   seed,
 	}
 
+	clog.Infow("sortMaker", "height", height, "round", round, "n", n)
 	s, err := vrfSortiton(input, n, 1, c.difficulty(MakerSize, round, height))
 	if err != nil {
-		clog.Errorw("sortCommittee error", "err", err)
+		clog.Errorw("sortMaker vrfSortition error", "err", err, "height", height, "round", round)
 		return
 	}
 	if len(s.Hashs) == 0 {
+		clog.Infow("sortMaker hash==nil", "height", height, "round", round)
 		return
 	}
 
@@ -647,12 +682,14 @@ func (c *Consensus) sortCommittee(height int64, round, n int, seed []byte) {
 		Seed:   seed,
 	}
 
+	clog.Infow("sortCommittee", "height", height, "round", round, "n", n)
 	s, err := vrfSortiton(input, n, 3, c.difficulty(CommitteeSize, round, height))
 	if err != nil {
-		clog.Errorw("sortCommittee error", "err", err)
+		clog.Errorw("sortCommittee vrfSortition error", "err", err, "height", height, "round", round)
 		return
 	}
 	if len(s.Hashs) == 0 {
+		clog.Infow("sortCommittee hash==nil", "height", height, "round", round)
 		return
 	}
 
@@ -700,8 +737,10 @@ func (c *Consensus) voteBlock(height int64, round int) {
 	comm := c.getCommittee(height, round)
 	sort.Sort(types.NewBlockSlice(comm.ab.bs))
 
+	clog.Infow("voteBlock ", "height", height, "round", round)
 	myhashs, _ := comm.getMyHashs()
 	if myhashs == nil {
+		clog.Infow("voteBlock: I am Not committee", "height", height, "round", round)
 		return
 	}
 	if len(comm.ab.bs) > 0 {
@@ -715,6 +754,8 @@ func (c *Consensus) voteBlock(height int64, round int) {
 		v.Sign(c.priv)
 		c.n.Publish(p2p.BlockVoteTopic, v)
 		c.handleBlockVote(v)
+	} else {
+		clog.Infow("voteBlock: len(comm.ab.bs)==0", "height", height, "round", round)
 	}
 }
 
@@ -769,13 +810,13 @@ func (c *Consensus) sync() {
 	lastHeader, err := readLastHeader(c.db)
 	if err != nil {
 		clog.Errorw("readLastHeader error", "err", err)
-		gb, err := c.GenesisBlock()
+		gb, err := c.genesisBlock()
 		if err != nil {
 			clog.Panicw("GenesisBlock panic", "err", err)
 		}
 		err = c.execBlock(gb)
 		if err != nil {
-			clog.Panicw("GenesisBlock panic", "err", err)
+			clog.Panicw("GenesisBlock exec panic", "err", err)
 		}
 		c.addNewBlock(gb)
 		if c.Single {
@@ -790,6 +831,7 @@ func (c *Consensus) sync() {
 		br, err := c.rpcGetBlocks(c.lastBlock.Header.Height+1, 10, "GetBlocks")
 		if err != nil {
 			clog.Errorw("sync error", "err", err)
+			return
 		}
 		synced = c.handleBlocksReply(br)
 	}
@@ -804,7 +846,7 @@ func (c *Consensus) firstSort(zb *types.Block) {
 
 	seed := zb.Hash()
 	round := 0
-	for i := int64(0); i < int64(c.AdvSortBlocks)+1; i++ {
+	for i := int64(1); i < int64(c.AdvSortBlocks)+1; i++ {
 		c.sortMaker(i, round, int(n/c.VotePrice), seed)
 		c.sortCommittee(i, round, int(n/c.VotePrice), seed)
 		if i < int64(c.AdvVoteBlocks) {
@@ -812,6 +854,7 @@ func (c *Consensus) firstSort(zb *types.Block) {
 			c.voteCommittee(i, round)
 		}
 	}
+	c.voteBlock(0, 0)
 }
 
 // TODO: peerlist and data node list

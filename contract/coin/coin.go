@@ -12,7 +12,7 @@ import (
 	"xxx/types"
 )
 
-var clog = log.New("coin")
+var clog *log.Logger
 
 const (
 	Name       = "coin"
@@ -30,6 +30,7 @@ type Coin struct {
 
 func Init(c *contract.Container) {
 	c.Register(&Coin{c})
+	clog = log.New("coin")
 }
 
 func (c *Coin) Name() string {
@@ -60,15 +61,16 @@ func (c *Coin) Exec(from, to, op string, data []byte) error {
 }
 
 func (c *Coin) SetIssue(amount int64) error {
-	db := c.GetDB()
-	issAll, err := QueryBalance("issue", db)
-	if err != nil {
-		clog.Error("query balance error", "err", err)
-	}
-	issAll += amount
-	buf := []byte(strconv.FormatInt(issAll, 10))
-	issue_key := keyBase + "issue"
-	return db.Set([]byte(issue_key), buf)
+	// db := c.GetDB()
+	// issAll, err := QueryBalance("issue", db)
+	// if err != nil {
+	// 	clog.Error("query balance error", "err", err)
+	// }
+	// issAll += amount
+	// buf := []byte(strconv.FormatInt(issAll, 10))
+	// issue_key := keyBase + "issue"
+	// return db.Set([]byte(issue_key), buf)
+	return nil
 }
 
 func (c *Coin) Issue(to string, amount int64) error {
@@ -83,13 +85,9 @@ func (c *Coin) Issue(to string, amount int64) error {
 	if balance < 0 {
 		return errors.New("not enough balance")
 	}
+	clog.Infow("Issue", "to", to, "amount", amount)
 	buf := []byte(strconv.FormatInt(balance, 10))
-	err = db.Set([]byte(keyBase+to), buf)
-	if err != nil {
-		return err
-	}
-
-	return c.SetIssue(amount)
+	return db.Set([]byte(keyBase+to), buf)
 }
 
 func (c *Coin) Fee(from string, amount int64) error {
@@ -103,17 +101,14 @@ func (c *Coin) Fee(from string, amount int64) error {
 	if balance < 0 {
 		return errors.New("not enough balance")
 	}
+	clog.Infow("coin.Fee", "from", from, "amount", amount)
 	buf := []byte(strconv.FormatInt(balance, 10))
-	err = db.Set([]byte(keyBase+from), buf)
-	if err != nil {
-		return err
-	}
-	return c.SetIssue(-amount)
+	return db.Set([]byte(keyBase+from), buf)
 }
 
 func (c *Coin) Transfer(from, to string, amount int64) error {
+	clog.Infow("coin.Transfer", "from", from, "to", to, "amount", amount)
 	db := c.GetDB()
-
 	from_balance, err := QueryBalance(from, db)
 	if err != nil {
 		return err
@@ -123,6 +118,7 @@ func (c *Coin) Transfer(from, to string, amount int64) error {
 	if err != nil {
 		clog.Info("transfer error", "err", err)
 	}
+
 	from_balance -= amount
 	if from_balance < 0 {
 		return errors.New("not enough balance")
@@ -159,7 +155,7 @@ func QueryBalance(addr string, db db.KV) (int64, error) {
 	return amount, nil
 }
 
-func CreateIssueTx(amount int64, c *contract.Container) (*types.Tx, error) {
+func CreateIssueTx(priv crypto.PrivateKey, to string, amount int64) (*types.Tx, error) {
 	a := &types.Amount{
 		A: amount,
 	}
@@ -170,14 +166,14 @@ func CreateIssueTx(amount int64, c *contract.Container) (*types.Tx, error) {
 	}
 
 	tx := &types.Tx{
-		To:       c.GenesisAddr,
+		To:       to,
 		Contract: Name,
 		Op:       IssueOp,
 		Data:     data,
 		Height:   0,
 		Nonce:    rand.Int63(),
 	}
-
+	tx.Sign(priv)
 	return tx, nil
 }
 

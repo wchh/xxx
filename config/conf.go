@@ -4,7 +4,6 @@ type Config struct {
 	ChainID    string
 	Version    string
 	NodeType   string
-	FundAddr   string
 	DataPath   string
 	LogPath    string
 	LogLevel   string
@@ -17,16 +16,17 @@ type Config struct {
 }
 
 type ConsensusConfig struct {
-	DataNodes     []string
-	BootPeers     []string
-	GenesisAddr   string
-	PrivateSeed   string
-	VotePrice     int64
-	TxFee         int64
-	AdvSortBlocks int
-	AdvVoteBlocks int
-	CheckSig      bool
-	Single        bool
+	DataNodes            []string
+	BootPeers            []string
+	PrivateSeed          string
+	GenesisSeed          string
+	GenesisIssueAmount   int64
+	GenesisDepositAmount int64
+	VotePrice            int64
+	AdvSortBlocks        int
+	AdvVoteBlocks        int
+	CheckSig             bool
+	Single               bool
 }
 
 type ChainConfig struct {
@@ -43,23 +43,27 @@ var DefaultConfig = &Config{
 	RpcPort:    12223,
 
 	Consensus: &ConsensusConfig{
-		PrivateSeed:   "",
-		VotePrice:     1000,
-		TxFee:         1000,
-		AdvSortBlocks: 10,
-		AdvVoteBlocks: 5,
-		CheckSig:      true,
-		Single:        true,
+		PrivateSeed:          "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05",
+		GenesisSeed:          "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05",
+		GenesisIssueAmount:   1e8 * 100,
+		GenesisDepositAmount: 1000,
+		VotePrice:            1000,
+		AdvSortBlocks:        10,
+		AdvVoteBlocks:        5,
+		CheckSig:             true,
+		Single:               true,
 	},
 	Contract: &ConstractConfig{
-		FundAddr: "",
-		TxFee:    1000,
+		FundAddr:    "3ftLmbf3MEPXTJYmd4HsRtKqUgy",
+		GenesisAddr: "3VB31vq79eWwikFTFZknfYm9jJgC",
+		TxFee:       1000,
 	},
 }
 
 type ConstractConfig struct {
-	FundAddr string
-	TxFee    int64
+	FundAddr    string
+	GenesisAddr string
+	TxFee       int64
 }
 
 // genesis key
@@ -69,7 +73,7 @@ pk: b26c75988f8d01b829a8cb0cd15174a418999e953850fcf797c2594c782ec444
 address: 3VB31vq79eWwikFTFZknfYm9jJgC
 *******************************************/
 
-// root miner
+// miner
 /*******************************************
 sk: 0080242bfc85666aa8ce21846fa78d24898509fa8a60dd47ae80556798739617
 pk: 8816caf90abe305954f555403c138511b372689f009e98f6cad38f8000053d41

@@ -13,7 +13,7 @@ import (
 	"xxx/types"
 )
 
-var ylog = log.New("ycc")
+var ylog *log.Logger
 
 const (
 	Name       = "ycc"
@@ -33,6 +33,7 @@ type Ycc struct {
 }
 
 func Init(c *contract.Container) {
+	ylog = log.New("ycc")
 	c.Register(&Ycc{c})
 }
 
@@ -83,12 +84,14 @@ func (y *Ycc) Exec(from, to, op string, data []byte) error {
 }
 
 func (y *Ycc) deposit(from, to string, amount int64) error {
+	ylog.Infow("ycc.deposit", "from", from, "to", to, "amount", amount)
 	c := y.Container.GetContract(coin.Name).Clone()
 	co := c.(*coin.Coin)
-	err := co.Transfer(from, to, amount)
+	err := co.Transfer(from, Address(), amount)
 	if err != nil {
 		return err
 	}
+	ylog.Info("go here0")
 
 	db := y.GetDB()
 	err = setAllDeposit(amount, db)
@@ -96,13 +99,14 @@ func (y *Ycc) deposit(from, to string, amount int64) error {
 		return err
 	}
 
+	ylog.Info("go here1")
 	dpa, err := QueryDeposit(from, db)
 	if err != nil {
-		ylog.Error("query deposit error", "err", err)
+		ylog.Errorw("query deposit error", "err", err)
 	}
 	dpa += amount
 	buf := strconv.FormatInt(dpa, 10)
-	return db.Set([]byte(keyBase+from), []byte(buf))
+	return db.Set([]byte(keyBase+to), []byte(buf))
 }
 
 func (y *Ycc) withdraw(from, to string, amount int64) error {
@@ -125,6 +129,8 @@ func (y *Ycc) withdraw(from, to string, amount int64) error {
 	if err != nil {
 		return err
 	}
+
+	ylog.Infow("ycc.withdraw", "from", from, "to", to, "amount", amount)
 
 	c := y.Container.GetContract(coin.Name).Clone()
 	co := c.(*coin.Coin)
@@ -184,7 +190,7 @@ func QueryAllDeposit(db db.KV) (int64, error) {
 func setAllDeposit(new int64, db db.KV) error {
 	all, err := QueryAllDeposit(db)
 	if err != nil {
-		ylog.Error("query alldeposit error", "err", err)
+		ylog.Errorw("query alldeposit error", "err", err)
 	}
 
 	key := keyBase + "all"
@@ -201,7 +207,7 @@ func QueryDeposit(addr string, db db.KV) (int64, error) {
 	return strconv.ParseInt(string(val), 10, 64)
 }
 
-func CreateDepositTx(priv crypto.PrivateKey, addr string, amount, height int64) (*types.Tx, error) {
+func CreateDepositTx(priv crypto.PrivateKey, to string, amount, height int64) (*types.Tx, error) {
 	d := &types.Amount{
 		A: amount,
 	}
@@ -211,14 +217,16 @@ func CreateDepositTx(priv crypto.PrivateKey, addr string, amount, height int64) 
 	}
 
 	tx := &types.Tx{
-		To:       addr,
+		To:       to,
 		Contract: Name,
 		Op:       DepositOp,
 		Data:     data,
 		Height:   height,
 		Nonce:    rand.Int63(),
 	}
-	tx.Sign(priv)
+	if priv != nil {
+		tx.Sign(priv)
+	}
 	return tx, nil
 }
 

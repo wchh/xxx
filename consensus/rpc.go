@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"errors"
 	"xxx/contract/coin"
 	"xxx/contract/ycc"
 	"xxx/types"
@@ -73,7 +74,12 @@ func (c *Consensus) rpcGetBlocks(start, count int64, m string) (*types.BlocksRep
 		Count: count,
 	}
 
-	clt, err := c.getRpcClient(c.getDataNode().RpcAddr, "Chain")
+	dn := c.getDataNode()
+	if dn == nil {
+		return nil, errors.New("NO rpc node")
+	}
+
+	clt, err := c.getRpcClient(dn.RpcAddr, "Chain")
 	if err != nil {
 		clog.Error("handleBlocksReply error", "err", err)
 		return nil, err

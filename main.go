@@ -43,7 +43,8 @@ func main() {
 
 	log.Init(conf.LogPath, conf.LogLevel)
 	defer log.Sync()
-	log.New("main").Info("xxx start run!!!")
+	mlog := log.New("main")
+	mlog.Info("xxx start run!!!")
 
 	if conf.NodeType == "consensus" {
 		runConsensusNode(conf)
@@ -55,7 +56,7 @@ func main() {
 }
 
 func runConsensusNode(conf *Config) {
-	cc := contract.New(conf.FundAddr)
+	cc := contract.New(conf.Contract)
 	coin.Init(cc)
 	ycc.Init(cc)
 

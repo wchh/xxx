@@ -44,14 +44,14 @@ func (priv PrivateKey) String() string {
 }
 
 func PrivateKeyFromString(s string) (PrivateKey, error) {
+	if len(s) != 64 {
+		return nil, errors.New("seed string length must be 64 bytes")
+	}
 	b, err := hex.DecodeString(s)
 	if err != nil {
 		return nil, err
 	}
-	if len(b) != ed25519.PrivateKeySize {
-		return nil, errors.New("privatekey len error")
-	}
-	return PrivateKey(b), nil
+	return NewKeyFromSeed(b), nil
 }
 
 func Hash(msg []byte) []byte {
@@ -72,7 +72,7 @@ func (pub PublicKey) String() string {
 }
 
 func NewAddress(hash []byte) string {
-	return base58.Encode(Hash(hash))
+	return base58.Encode(Hash(hash)[:20])
 }
 
 func PubkeyToAddr(pub PublicKey) string {
