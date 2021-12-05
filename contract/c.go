@@ -9,7 +9,11 @@ import (
 	"xxx/types"
 )
 
-var clog *log.Logger
+var clog = new(log.Logger)
+
+func init() {
+	log.Register("contract", clog)
+}
 
 type feeContract interface {
 	Fee(from string, amount int64) error
@@ -40,7 +44,6 @@ type Container struct {
 }
 
 func New(conf *config.ConstractConfig) *Container {
-	clog = log.New("contract")
 	c := &Container{contractMap: make(map[string]Contract), ConstractConfig: conf}
 	// c.Register(&Base{db: db})
 	return c

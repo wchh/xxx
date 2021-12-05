@@ -24,6 +24,8 @@ var confPath = flag.String("c", "xxx.toml", "config path")
 
 type Config = config.Config
 
+var mlog = new(log.Logger)
+
 func main() {
 	flag.Parse()
 
@@ -41,9 +43,11 @@ func main() {
 		return
 	}
 
+	log.Register("main", mlog)
+
 	log.Init(conf.LogPath, conf.LogLevel)
 	defer log.Sync()
-	mlog := log.New("main")
+
 	mlog.Info("xxx start run!!!")
 
 	if conf.NodeType == "consensus" {

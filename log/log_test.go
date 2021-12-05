@@ -2,12 +2,14 @@ package log
 
 import (
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 func TestLogger(t *testing.T) {
 	Init("test.log", "debug")
 	defer Sync()
-	logger := New("test")
+	logger := zap.S()
 	logger.Debug("debug", "1", 1)
 	logger.Debugw("debug", "1", 1)
 	logger.Info("info", "1", 1)

@@ -13,7 +13,7 @@ import (
 	"xxx/types"
 )
 
-var ylog *log.Logger
+var ylog = new(log.Logger)
 
 const (
 	Name       = "ycc"
@@ -25,7 +25,6 @@ const (
 	BlockReward = coin.CoinX * 30
 	VoteReward  = coin.CoinX / 2        // 0.5 ycc
 	MakerReward = coin.CoinX * 22 / 100 // 0.22 ycc
-	VoteX       = coin.CoinX * 10000
 )
 
 type Ycc struct {
@@ -33,7 +32,6 @@ type Ycc struct {
 }
 
 func Init(c *contract.Container) {
-	ylog = log.New("ycc")
 	c.Register(&Ycc{c})
 }
 
@@ -91,7 +89,6 @@ func (y *Ycc) deposit(from, to string, amount int64) error {
 	if err != nil {
 		return err
 	}
-	ylog.Info("go here0")
 
 	db := y.GetDB()
 	err = setAllDeposit(amount, db)
@@ -99,7 +96,6 @@ func (y *Ycc) deposit(from, to string, amount int64) error {
 		return err
 	}
 
-	ylog.Info("go here1")
 	dpa, err := QueryDeposit(from, db)
 	if err != nil {
 		ylog.Errorw("query deposit error", "err", err)
@@ -140,6 +136,7 @@ func (y *Ycc) withdraw(from, to string, amount int64) error {
 var yccAddr string
 
 func init() {
+	log.Register("ycc", ylog)
 	yccAddr = crypto.NewAddress([]byte(Name))
 }
 
@@ -157,23 +154,29 @@ func (y *Ycc) mine(msg types.Message) error {
 	all := BlockReward
 
 	m := msg.(*types.Ycc_Mine)
+	mineAddr := (crypto.PublicKey)(m.Sort.Sig.PublicKey).Address()
+	nvote := types.Votes(m.Votes).Count()
+	ylog.Infow("mine ", "addr", mineAddr, "nvote", nvote)
+
 	for _, v := range m.Votes {
-		pub := (crypto.PublicKey)(v.Sig.PublicKey)
+		to := (crypto.PublicKey)(v.Sig.PublicKey).Address()
 		amount := VoteReward * int64(len(v.MyHashs))
-		err := co.Issue(pub.Address(), amount)
+		err := co.Issue(to, amount)
 		if err != nil {
+			ylog.Errorw("mine error", "err", err)
 			return err
 		}
+		ylog.Infow("mine voter reward", "addr", to, "amount", amount)
 		all -= amount
 	}
 
-	minepub := (crypto.PublicKey)(m.Sort.Sig.PublicKey)
-	err := co.Issue(minepub.Address(), MakerReward)
+	err := co.Issue(mineAddr, MakerReward*int64(nvote))
 	if err != nil {
+		ylog.Errorw("mine error", "err", err)
 		return err
 	}
 
-	all -= MakerReward
+	all -= MakerReward * int64(nvote)
 	return co.Issue(y.FundAddr, all)
 }
 
@@ -181,7 +184,7 @@ func QueryAllDeposit(db db.KV) (int64, error) {
 	key := keyBase + "all"
 	val, err := db.Get([]byte(key))
 	if err != nil {
-		return 0, nil
+		return 0, err
 	}
 
 	return strconv.ParseInt(string(val), 10, 64)
@@ -194,7 +197,7 @@ func setAllDeposit(new int64, db db.KV) error {
 	}
 
 	key := keyBase + "all"
-	return db.Set([]byte(key), []byte(strconv.FormatInt(all+new/VoteX, 10)))
+	return db.Set([]byte(key), []byte(strconv.FormatInt(all+new, 10)))
 }
 
 func QueryDeposit(addr string, db db.KV) (int64, error) {

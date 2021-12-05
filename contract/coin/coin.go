@@ -12,7 +12,7 @@ import (
 	"xxx/types"
 )
 
-var clog *log.Logger
+var clog = new(log.Logger)
 
 const (
 	Name       = "coin"
@@ -30,7 +30,6 @@ type Coin struct {
 
 func Init(c *contract.Container) {
 	c.Register(&Coin{c})
-	clog = log.New("coin")
 }
 
 func (c *Coin) Name() string {
@@ -78,7 +77,7 @@ func (c *Coin) Issue(to string, amount int64) error {
 
 	balance, err := QueryBalance(to, db)
 	if err != nil {
-		clog.Error("query balance error", "err", err)
+		clog.Errorw("query balance error", "err", err)
 	}
 
 	balance += amount
@@ -95,7 +94,7 @@ func (c *Coin) Fee(from string, amount int64) error {
 
 	balance, err := QueryBalance(from, db)
 	if err != nil {
-		clog.Error("query balance error", "err", err)
+		clog.Errorw("query balance error", "err", err)
 	}
 	balance -= amount
 	if balance < 0 {
@@ -116,7 +115,7 @@ func (c *Coin) Transfer(from, to string, amount int64) error {
 
 	to_balance, err := QueryBalance(to, db)
 	if err != nil {
-		clog.Info("transfer error", "err", err)
+		clog.Infow("transfer error", "err", err)
 	}
 
 	from_balance -= amount
@@ -204,6 +203,7 @@ var coinAddr string
 
 func init() {
 	coinAddr = crypto.NewAddress([]byte(Name))
+	log.Register("coin", clog)
 }
 
 func Address() string {

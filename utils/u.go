@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"encoding/hex"
 	"io"
 
 	"github.com/pierrec/lz4"
@@ -21,4 +22,14 @@ func Uncompress(data []byte) []byte {
 	b := new(bytes.Buffer)
 	io.Copy(b, r)
 	return b.Bytes()
+}
+
+type Bytes []byte
+
+func (b Bytes) String() string {
+	nb := b
+	if len(nb) > 8 {
+		nb = nb[:8]
+	}
+	return hex.EncodeToString(nb)
 }

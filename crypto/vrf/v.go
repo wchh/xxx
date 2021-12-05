@@ -20,7 +20,7 @@ func (priv PrivateKey) Evaluate(m []byte) (index [32]byte, proof []byte) {
 }
 
 func (priv PrivateKey) Public() PublicKey {
-	return (PublicKey)(priv[:32])
+	return (PublicKey)(priv[32:])
 }
 
 func (p PublicKey) Verify(h, m, proof []byte) bool {

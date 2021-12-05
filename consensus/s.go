@@ -38,7 +38,7 @@ func vrfSortiton(input *types.VrfInput, n, g int, diff float64) (*types.Sortitio
 			if new(big.Float).Quo(z, fmax).Cmp(big.NewFloat(diff)) > 0 {
 				continue
 			}
-			sh := &types.SortHash{Index: int64(i), Hash: hash, Group: int32(g)}
+			sh := &types.SortHash{Index: int64(i), Hash: hash, Group: int32(j)}
 			ss = append(ss, sh)
 		}
 	}

@@ -45,7 +45,6 @@ func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][
 		for tx := range tch {
 			rtxs = append(rtxs, tx)
 		}
-		clog.Info("aha go here0")
 		wg2.Done()
 	}()
 
@@ -54,7 +53,6 @@ func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][
 		for h := range hch {
 			rhs = append(rhs, h)
 		}
-		clog.Info("aha go here1")
 		wg2.Done()
 	}()
 
@@ -80,7 +78,6 @@ func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][
 	case <-done:
 	}
 
-	clog.Info("aha go here3")
 	wg.Wait()
 	close(tch)
 	close(hch)
