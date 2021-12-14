@@ -2,27 +2,26 @@ package chain
 
 import (
 	"fmt"
+	"sync"
 
 	"xxx/config"
+	"xxx/crypto"
 	"xxx/db"
+	"xxx/log"
 	"xxx/p2p"
 	"xxx/types"
 )
 
-// type Conf struct {
-// 	RpcAddr    string
-// 	ServerAddr string
-// 	DataPath   string
-// }
+var clog = new(log.Logger)
 
-// var DefaultConf = &Conf{
-// 	DataPath:   "data",
-// 	RpcAddr:    ":12223",
-// 	ServerAddr: ":12123",
-// }
+func init() {
+	log.Register("chain", clog)
+}
 
 type Chain struct {
 	*config.Config
+
+	mu        sync.Mutex
 	curHeight int64
 	n         *p2p.Node
 	db        db.DB
@@ -34,7 +33,11 @@ func New(conf *config.Config) (*Chain, error) {
 	if err != nil {
 		return nil, err
 	}
-	p2pConf := &p2p.Conf{}
+	priv, err := crypto.PrivateKeyFromString(conf.Consensus.PrivateSeed)
+	if err != nil {
+		return nil, err
+	}
+	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort, Topics: p2p.ChainTopics}
 	node, err := p2p.NewNode(p2pConf)
 	if err != nil {
 		return nil, err
@@ -74,13 +77,16 @@ func (c *Chain) handleP2pMsg(m *p2p.Msg) {
 }
 
 func (c *Chain) Run() {
-	go runRpc(fmt.Sprintf("%d", c.RpcPort), c)
+	go runRpc(fmt.Sprintf(":%d", c.RpcPort), c)
 	for m := range c.n.C {
 		c.handleP2pMsg(m)
 	}
 }
 
 func (c *Chain) handleNewBlock(nb *types.NewBlock) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	cb := c.bm[nb.Header.Height]
 	sb := &types.StoreBlock{Header: nb.Header}
 	sb.TxHashs = append(sb.TxHashs, nb.Tx0.Hash())
@@ -117,7 +123,7 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) {
 	delete(c.bm, c.curHeight)
 	c.curHeight = nb.Header.Height
 
-	pb := c.bm[c.curHeight+4]
+	pb := c.bm[c.curHeight+int64(c.Chain.PreBlocks)]
 	pb.Header.TxsHash = types.TxsMerkel(pb.Txs)
 	// c.n.Publish(p2p.PreBlockTopic, pb)
 }
@@ -148,15 +154,20 @@ func (c *Chain) handleTxs(txs []*types.Tx) {
 	for _, tx := range txs {
 		th, err := c.writeTx(tx)
 		if err != nil {
+			clog.Errorw("handleTxs error", "err", err)
 			return
 		}
 
-		height := c.curHeight + 4 + int64(th[0]%8)
+		c.mu.Lock()
+		height := c.curHeight + int64(c.Chain.PreBlocks) + int64(th[0]%byte(c.Chain.ShardNum))
 		b, ok := c.bm[height]
 		if !ok {
 			b = &types.Block{Header: &types.Header{Height: height}}
+			c.bm[height] = b
 		}
 		b.Txs = append(b.Txs, tx)
+		clog.Infow("handleTxs", "ntx", len(b.Txs), "height", height)
+		c.mu.Unlock()
 	}
 }
 
@@ -215,6 +226,9 @@ func (c *Chain) handleGetBlocks(pid string, m *types.GetBlocks) {
 }
 
 func (c *Chain) getPreBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	var bs []*types.Block
 	for i := m.Start; i < m.Start+m.Count; i++ {
 		b, ok := c.bm[i]

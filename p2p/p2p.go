@@ -482,3 +482,23 @@ const (
 	remoteAddrTopic = "remoteaddress"
 	sendMsgTopic    = "sendmsg"
 )
+
+var ChainTopics = []string{
+	PreBlockTopic,
+	NewBlockTopic,
+	MakerSortTopic,
+	CommitteeSortTopic,
+	ConsensusBlockTopic,
+	MakerVoteTopic,
+	CommitteeVoteTopic,
+	BlockVoteTopic,
+	BlocksReplyTopic,
+	GetBlocksTopic,
+	PreBlocksReplyTopic,
+	GetPreBlocksTopic,
+	PeerInfoTopic,
+	// remoteAddrTopic,
+	// sendMsgTopic,
+}
+
+var ConsensusTopcs = ChainTopics

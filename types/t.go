@@ -21,7 +21,7 @@ func Unmarshal(buf []byte, msg Message) error {
 
 func (tx *Tx) Hash() []byte {
 	msg, _ := Marshal(tx)
-	return msg
+	return crypto.Hash(msg)
 }
 
 func (tx *Tx) Sign(priv crypto.PrivateKey) {

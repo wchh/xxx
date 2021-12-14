@@ -72,7 +72,6 @@ func (c *Chain) QueryBlockByHeight(ctx context.Context, args int64, reply *types
 
 func runRpc(addr string, c *Chain) {
 	s := server.NewServer()
-	// s.Register(c, "")
 	s.RegisterName("Chain", c, "")
 	go s.Serve("tcp", addr)
 }

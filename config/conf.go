@@ -30,6 +30,8 @@ type ConsensusConfig struct {
 }
 
 type ChainConfig struct {
+	ShardNum  int
+	PreBlocks int
 }
 
 var DefaultConfig = &Config{
@@ -37,7 +39,7 @@ var DefaultConfig = &Config{
 	Version:    "0.0.1",
 	NodeType:   "consensus",
 	DataPath:   "data",
-	LogPath:    "log",
+	LogPath:    "log.log",
 	LogLevel:   "debug",
 	ServerPort: 12123,
 	RpcPort:    12223,
@@ -52,6 +54,10 @@ var DefaultConfig = &Config{
 		AdvVoteBlocks:        5,
 		CheckSig:             true,
 		Single:               true,
+	},
+	Chain: &ChainConfig{
+		ShardNum:  4,
+		PreBlocks: 4,
 	},
 	Contract: &ConstractConfig{
 		FundAddr:    "3ftLmbf3MEPXTJYmd4HsRtKqUgy",

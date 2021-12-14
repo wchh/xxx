@@ -67,7 +67,7 @@ func New(conf *config.Config, c *contract.Container) (*Consensus, error) {
 	if err != nil {
 		return nil, err
 	}
-	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort}
+	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort, Topics: p2p.ConsensusTopcs}
 	node, err := p2p.NewNode(p2pConf)
 	if err != nil {
 		return nil, err
