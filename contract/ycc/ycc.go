@@ -13,7 +13,7 @@ import (
 	"xxx/types"
 )
 
-var ylog = new(log.Logger)
+var ylog = log.New("contract.ycc")
 
 const (
 	Name       = "ycc"
@@ -136,7 +136,6 @@ func (y *Ycc) withdraw(from, to string, amount int64) error {
 var yccAddr string
 
 func init() {
-	log.Register("ycc", ylog)
 	yccAddr = crypto.NewAddress([]byte(Name))
 }
 

@@ -12,11 +12,7 @@ import (
 	"xxx/types"
 )
 
-var clog = new(log.Logger)
-
-func init() {
-	log.Register("chain", clog)
-}
+var clog = log.New("chain")
 
 type Chain struct {
 	*config.Config

@@ -33,11 +33,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
-var plog = new(log.Logger)
-
-func init() {
-	log.Register("p2p", plog)
-}
+var plog = log.New("p2p")
 
 type Node struct {
 	*Conf

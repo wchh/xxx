@@ -12,7 +12,7 @@ import (
 	"xxx/types"
 )
 
-var clog = new(log.Logger)
+var clog = log.New("contract.coin")
 
 const (
 	Name       = "coin"
@@ -203,7 +203,6 @@ var coinAddr string
 
 func init() {
 	coinAddr = crypto.NewAddress([]byte(Name))
-	log.Register("coin", clog)
 }
 
 func Address() string {

@@ -9,11 +9,7 @@ import (
 	"xxx/types"
 )
 
-var clog = new(log.Logger)
-
-func init() {
-	log.Register("contract", clog)
-}
+var clog = log.New("contract")
 
 type feeContract interface {
 	Fee(from string, amount int64) error
