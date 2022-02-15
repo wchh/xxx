@@ -24,7 +24,7 @@ var confPath = flag.String("c", "xxx.toml", "config path")
 
 type Config = config.Config
 
-var mlog = new(log.Logger)
+var mlog = log.New("main")
 
 func main() {
 	flag.Parse()
@@ -42,8 +42,6 @@ func main() {
 		os.WriteFile(*confPath, buf.Bytes(), 0666)
 		return
 	}
-
-	log.Register("main", mlog)
 
 	log.Init(conf.LogPath, conf.LogLevel)
 	defer log.Sync()

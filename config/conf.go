@@ -31,7 +31,7 @@ type ConsensusConfig struct {
 
 type ChainConfig struct {
 	ShardNum  int
-	PreBlocks int
+	PreBlocks int // 提前
 }
 
 var DefaultConfig = &Config{

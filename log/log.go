@@ -41,16 +41,12 @@ func Init(path, level string) {
 	zap.ReplaceGlobals(logger)
 
 	for m, l := range logger_map {
-		*l = *newLog(m)
+		*l = *zap.S().With("mod", m)
 	}
 }
 
 func Sync() {
 	zap.L().Sync()
-}
-
-func newLog(m string) *Logger {
-	return zap.S().With("mod", m)
 }
 
 type Logger = zap.SugaredLogger
@@ -62,6 +58,12 @@ func Register(m string, logger *Logger) {
 		logger_map = make(map[string]*zap.SugaredLogger)
 	}
 	logger_map[m] = logger
+}
+
+func New(m string) *Logger {
+	logger := new(Logger)
+	Register(m, logger)
+	return logger
 }
 
 func conv_level(level string) zapcore.Level {

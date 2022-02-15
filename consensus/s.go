@@ -10,38 +10,61 @@ import (
 	"xxx/types"
 )
 
+type sortTask struct {
+	vrfHash []byte
+	index   int
+	group   int
+	diff    float64
+	ch      chan<- *types.SortHash
+}
+
+func sortFunc(vrfHash []byte, index, group int, diff float64) *types.SortHash {
+	data := fmt.Sprintf("%x+%d+%d", vrfHash, index, group)
+	hash := crypto.DoubleHash([]byte(data))
+
+	// 转为big.Float计算，比较难度diff
+	y := new(big.Int).SetBytes(hash)
+	z := new(big.Float).SetInt(y)
+	if new(big.Float).Quo(z, fmax).Cmp(big.NewFloat(diff)) > 0 {
+		return nil
+	}
+	return &types.SortHash{Index: int64(index), Hash: hash, Group: int32(group)}
+}
+
+func (t *sortTask) Do() {
+	t.ch <- sortFunc(t.vrfHash, t.index, t.group, t.diff)
+}
+
 var max = big.NewInt(0).Exp(big.NewInt(2), big.NewInt(256), nil)
 var fmax = big.NewFloat(0).SetInt(max) // 2^^256
-func vrfSortiton(input *types.VrfInput, n, g int, diff float64) (*types.Sortition, error) {
+func (c *Consensus) vrfSortiton(input *types.VrfInput, n, g int, diff float64) (*types.Sortition, error) {
 	in, err := types.Marshal(input)
 	if err != nil {
 		return nil, err
 	}
 
-	vrfSk, err := vrf.NewKey()
-	if err != nil {
-		return nil, err
-	}
-
+	vrfSk := (*vrf.PrivateKey)(&c.priv)
 	vrfHash, proof := vrfSk.Evaluate(in)
 	vrfProof := &types.VrfProof{Input: input, Proof: proof, Hash: vrfHash[:], PublicKey: vrfSk.Public()}
 
-	var ss []*types.SortHash
-	for j := 0; j < g; j++ {
-		for i := 0; i < n; i++ {
-			data := fmt.Sprintf("%x+%d+%d", vrfHash, i, j)
-			hash := crypto.DoubleHash([]byte(data))
-
-			// 转为big.Float计算，比较难度diff
-			y := new(big.Int).SetBytes(hash)
-			z := new(big.Float).SetInt(y)
-			if new(big.Float).Quo(z, fmax).Cmp(big.NewFloat(diff)) > 0 {
-				continue
+	ch := make(chan *types.SortHash, 8)
+	go func() {
+		for j := 0; j < g; j++ {
+			for i := 0; i < n; i++ {
+				c.pool.Put(&sortTask{vrfHash: vrfHash[:], index: i, group: j, diff: diff, ch: ch})
 			}
-			sh := &types.SortHash{Index: int64(i), Hash: hash, Group: int32(j)}
+		}
+	}()
+	var ss []*types.SortHash
+	k := 0
+	for k < n*g {
+		sh := <-ch
+		if sh != nil {
 			ss = append(ss, sh)
 		}
+		k++
 	}
+	close(ch)
 	return &types.Sortition{Proof: vrfProof, Hashs: ss}, nil
 }
 
@@ -58,9 +81,13 @@ func vrfVerify(input *types.VrfInput, s *types.Sortition, diff float64) error {
 		return errors.New("vrf input NOT match")
 	}
 
-	publicKey := (vrf.PublicKey)(s.Proof.PublicKey)
-	if !publicKey.Verify(s.Proof.Hash, in, s.Proof.Proof) {
-		return errors.New("vrf verify failed")
+	pk := (vrf.PublicKey)(s.Proof.PublicKey)
+	index, err := pk.PoofToHash(in, s.Proof.Proof)
+	if err != nil {
+		return errors.New("vrf verify failed" + err.Error())
+	}
+	if string(index[:]) != string(s.Proof.Hash) {
+		return errors.New("vrf verify failed: index NOT same")
 	}
 
 	for _, h := range s.Hashs {

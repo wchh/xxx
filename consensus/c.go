@@ -19,16 +19,7 @@ import (
 	"xxx/utils"
 )
 
-var clog = new(log.Logger)
-
-func init() {
-	log.Register("consensus", clog)
-}
-
-type hr struct {
-	h int64
-	r int
-}
+var clog = log.New("consensus")
 
 type Consensus struct {
 	*config.ConsensusConfig
@@ -37,7 +28,7 @@ type Consensus struct {
 	rpcPort   int
 	n         *p2p.Node
 	db        db.DB
-	c         *contract.Container
+	cc        *contract.Container
 	lastBlock *types.Block
 	priv      crypto.PrivateKey
 	myAddr    string
@@ -49,12 +40,13 @@ type Consensus struct {
 	block_mp      map[int64]*types.Block
 	peer_mp       map[string]*types.PeerInfo
 
-	vbch chan hr
 	nbch chan *types.Block
 	mch  chan *p2p.Tmsg
+
+	pool *utils.GoPool
 }
 
-func New(conf *config.Config, c *contract.Container) (*Consensus, error) {
+func New(conf *config.Config, cc *contract.Container) (*Consensus, error) {
 	ldb, err := db.NewLDB(conf.DataPath)
 	if err != nil {
 		return nil, err
@@ -80,7 +72,7 @@ func New(conf *config.Config, c *contract.Container) (*Consensus, error) {
 		ConsensusConfig: conf.Consensus,
 		n:               node,
 		db:              ldb,
-		c:               c,
+		cc:              cc,
 		myAddr:          crypto.PubkeyToAddr(priv.PublicKey()),
 		maker_mp:        make(map[int64]map[int]*maker),
 		committee_mp:    make(map[int64]map[int]*committee),
@@ -89,9 +81,10 @@ func New(conf *config.Config, c *contract.Container) (*Consensus, error) {
 		block_mp:        make(map[int64]*types.Block),
 		peer_mp:         make(map[string]*types.PeerInfo),
 
-		vbch: make(chan hr, 1),
 		nbch: make(chan *types.Block, 1),
 		mch:  make(chan *p2p.Tmsg, 256),
+
+		pool: utils.NewPool(8),
 	}, nil
 }
 
@@ -169,11 +162,9 @@ func (c *Consensus) handleP2pMsg(msg *p2p.Tmsg) {
 	case p2p.CommitteeSortTopic:
 		c.handleCommitteeSort(msg.Msg.(*types.Sortition))
 	case p2p.MakerVoteTopic:
-		c.handleMakerVote(msg.Msg.(*types.CommitteeVote))
+		c.handleMakerVote(msg.Msg.(*types.Vote))
 	case p2p.CommitteeVoteTopic:
 		c.handleCommitteeVote(msg.Msg.(*types.CommitteeVote))
-	case p2p.BlockVoteTopic:
-		c.handleBlockVote(msg.Msg.(*types.Vote))
 	case p2p.ConsensusBlockTopic:
 		c.handleConsensusBlock(msg.Msg.(*types.NewBlock))
 	case p2p.BlocksReplyTopic:
@@ -259,6 +250,7 @@ func (c *Consensus) Run() {
 	go runRpc(fmt.Sprintf(":%d", c.rpcPort), c)
 	c.sync()
 	go c.readP2pMsg()
+	c.pool.Run()
 	c.ConsensusRun()
 }
 
@@ -283,8 +275,6 @@ func (c *Consensus) ConsensusRun() {
 		select {
 		case msg := <-c.mch:
 			c.handleP2pMsg(msg)
-		case hr := <-c.vbch:
-			c.voteBlock(hr.h, hr.r)
 		case b := <-c.nbch:
 			round = 0
 			c.handleNewblock(b, round)
@@ -315,12 +305,6 @@ func (c *Consensus) makeBlock(pb *types.Block, round int) {
 	c.getCommittee(height, round).setCommittee()
 
 	clog.Infow("makeBlock", "height", height, "round", round)
-	lh := string(c.lastBlock.Header.TxsHash)
-	comm := c.getCommittee(pb.Header.Height, int(pb.Header.Round))
-	if (types.Votes)(comm.bvs[lh]).Count() < MustVotes {
-		clog.Infow("makeBlock Not enough votes", "height", height-1, "round", round)
-		return
-	}
 
 	maker := c.getmaker(height, round)
 	maker.setMaker()
@@ -328,14 +312,18 @@ func (c *Consensus) makeBlock(pb *types.Block, round int) {
 		clog.Infow("makeBlock Not sort")
 		return
 	}
-	_, ok := maker.mvmp[string(maker.my.Hashs[0].Hash)]
+	vs, ok := maker.mvmp[string(maker.my.Hashs[0].Hash)]
 	if !ok {
 		clog.Infow("makeBlock Not vote maker")
 		return
 	}
+	if len(vs) < MustVotes {
+		clog.Infow("makeBlock Not enough votes")
+		return
+	}
 
 	m := &types.Ycc_Mine{
-		Votes: comm.bvs[lh],
+		Votes: vs,
 		Sort:  maker.my,
 	}
 	data, err := types.Marshal(m)
@@ -377,20 +365,15 @@ func (c *Consensus) makeBlock(pb *types.Block, round int) {
 func (c *Consensus) handlePreBlock(b *types.PreBlock) {
 	txs := b.B.Txs
 	if c.CheckSig {
-		txs, _, _ = txsVerifySig(txs, 8, false)
+		txs, _, _ = c.txsVerifySig(txs, 8, false)
 		b.B.Txs = txs
 	}
 	c.preblock_mp[b.B.Header.Height] = b.B
 }
 
-func (c *Consensus) handleMakerVote(v *types.CommitteeVote) {
+func (c *Consensus) handleMakerVote(v *types.Vote) {
 	maker := c.getmaker(v.Height, int(v.Round))
-	for _, h := range v.CommHashs {
-		// if !comm.findSort(string(h)) {
-		// 	return
-		// }
-		maker.mvmp[string(h)] += len(v.MyHashs)
-	}
+	maker.mvmp[string(v.Hash)] = append(maker.mvmp[string(v.Hash)], v)
 }
 
 func (c *Consensus) handleCommitteeVote(v *types.CommitteeVote) {
@@ -433,16 +416,16 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 	clog.Infow("preExecBlock", "height", b.Header.Height, "round", b.Header.Round, "ntx", len(b.Txs))
 	txs := b.Txs
 	if c.CheckSig {
-		txs, failedHash, _ = txsVerifySig(txs, 8, false)
+		txs, failedHash, _ = c.txsVerifySig(txs, 8, false)
 	}
 
 	db := db.NewMDB(c.db)
-	c.c.SetDB(db)
+	c.cc.SetDB(db)
 
 	rtxs := make([]*types.Tx, len(txs))
 	index := 0
 	for _, tx := range txs {
-		err := c.c.ExecTx(tx)
+		err := c.cc.ExecTx(tx)
 		if err != nil {
 			failedHash = append(failedHash, tx.Hash())
 		} else {
@@ -475,22 +458,22 @@ func (c *Consensus) execBlock(b *types.Block) error {
 		return err
 	}
 	// kv := db.NewBKV(t)
-	c.c.SetDB(t)
+	c.cc.SetDB(t)
 
 	defer doErr(&err, func() {
 		t.Discard()
 	})
 
 	txs := b.Txs
-	// if c.CheckSig {
-	// 	txs, _, err = txsVerifySig(txs, 8, true)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// }
+	if c.CheckSig {
+		txs, _, err = c.txsVerifySig(txs, 8, true)
+		if err != nil {
+			return err
+		}
+	}
 
 	for _, tx := range txs {
-		err = c.c.ExecTx(tx)
+		err = c.cc.ExecTx(tx)
 		if err != nil {
 			clog.Errorw("execBlock exectx error", "err", err)
 			return err
@@ -509,13 +492,11 @@ func (c *Consensus) execBlock(b *types.Block) error {
 	return t.Commit()
 }
 
-func (c *Consensus) setBlock(hash string, height int64, round int) {
-	clog.Infow("setBlock", "height", height, "round", round, "hash", utils.Bytes(hash).String())
+func (c *Consensus) setBlock(nb *types.NewBlock) {
+	height := nb.Header.Height
+	round := int(nb.Header.Round)
+	clog.Infow("setBlock", "height", height, "round", round, "hash", types.Hash(nb.Header.Hash()))
 	comm := c.getCommittee(height, round)
-	nb := comm.ab.get(hash)
-	if nb == nil {
-		return
-	}
 
 	b := comm.b
 	if b != nil && bytes.Equal(nb.Header.TxsHash, b.Header.TxsHash) { // my made block is ok
@@ -556,34 +537,8 @@ func (c *Consensus) addNewBlock(b *types.Block) {
 	}()
 }
 
-func (c *Consensus) handleBlockVote(v *types.Vote) {
-	comm := c.getCommittee(v.Height, int(v.Round))
-	comm.bvs[string(v.Hash)] = append(comm.bvs[string(v.Hash)], v)
-
-	clog.Infow("handleBlockVote", "height", v.Height, "round", v.Round, "nvote", len(v.MyHashs))
-
-	nvote := types.Votes(comm.bvs[string(v.Hash)]).Count()
-	if v.Height > 0 && !comm.ok && nvote >= MustVotes {
-		c.setBlock(string(v.Hash), v.Height, int(v.Round))
-		comm.ok = true
-	} else {
-		clog.Infow("handleBlockVote", "height", v.Height, "round", v.Round, "nvote", nvote)
-	}
-}
-
 func (c *Consensus) handleConsensusBlock(b *types.NewBlock) {
-	// if c.lastBlock.Header.Height >= b.Header.Height {
-	// 	return
-	// }
-	height := b.Header.Height
-	round := int(b.Header.Round)
-	comm := c.getCommittee(height, round)
-	comm.ab.add(b)
-	if comm.ab.len() == 1 && height > 0 {
-		time.AfterFunc(time.Millisecond*500, func() {
-			c.vbch <- hr{height, round}
-		})
-	}
+	c.setBlock(b)
 }
 
 func (c *Consensus) difficulty(t, r int, h int64) float64 {
@@ -669,7 +624,7 @@ func (c *Consensus) sortMaker(height int64, round, n int, seed []byte) {
 	}
 
 	clog.Infow("sortMaker", "height", height, "round", round, "n", n, "seed", utils.Bytes(seed))
-	s, err := vrfSortiton(input, n, 1, c.difficulty(MakerSize, round, height))
+	s, err := c.vrfSortiton(input, n, 1, c.difficulty(MakerSize, round, height))
 	if err != nil {
 		clog.Errorw("sortMaker vrfSortition error", "err", err, "height", height, "round", round)
 		return
@@ -699,7 +654,7 @@ func (c *Consensus) sortCommittee(height int64, round, n int, seed []byte) {
 	}
 
 	diff := c.difficulty(CommitteeSize, round, height)
-	s, err := vrfSortiton(input, n, 3, diff)
+	s, err := c.vrfSortiton(input, n, 3, diff)
 	if err != nil {
 		clog.Errorw("sortCommittee vrfSortition error", "err", err, "height", height, "round", round)
 		return
@@ -725,13 +680,17 @@ func (c *Consensus) voteMaker(height int64, round int) {
 	if myHashs == nil {
 		return
 	}
-	v := &types.CommitteeVote{
-		Height:    height,
-		Round:     int32(round),
-		CommHashs: comm.getMakerHashs(),
-		MyHashs:   myHashs,
+	mhs := comm.getMakerHashs()
+	if len(mhs) == 0 {
+		return
 	}
-
+	v := &types.Vote{
+		Height:  height,
+		Round:   int32(round),
+		Hash:    mhs[0], // vote first
+		MyHashs: myHashs,
+	}
+	v.Sign(c.priv)
 	c.n.Publish(p2p.MakerVoteTopic, v)
 	c.handleMakerVote(v)
 }
@@ -751,32 +710,6 @@ func (c *Consensus) voteCommittee(height int64, round int) {
 
 	c.n.Publish(p2p.CommitteeVoteTopic, cmmtt)
 	c.handleCommitteeVote(cmmtt)
-}
-
-func (c *Consensus) voteBlock(height int64, round int) {
-	comm := c.getCommittee(height, round)
-	sort.Sort(types.NewBlockSlice(comm.ab.bs))
-
-	myhashs, _ := comm.getMyHashs()
-	if myhashs == nil {
-		clog.Infow("voteBlock: I am Not committee", "height", height, "round", round)
-		return
-	}
-	if len(comm.ab.bs) > 0 {
-		b := comm.ab.bs[0]
-		v := &types.Vote{
-			Height:  height,
-			Round:   int32(round),
-			Hash:    b.Header.TxsHash,
-			MyHashs: myhashs,
-		}
-		v.Sign(c.priv)
-		c.n.Publish(p2p.BlockVoteTopic, v)
-		clog.Infow("voteBlock ", "height", height, "round", round, "nvote", len(myhashs))
-		c.handleBlockVote(v)
-	} else {
-		clog.Infow("voteBlock: len(comm.ab.bs)==0", "height", height, "round", round)
-	}
 }
 
 func (c *Consensus) handleBlocksReply(m *types.BlocksReply) bool {
@@ -839,7 +772,7 @@ func (c *Consensus) sync() {
 			clog.Panicw("GenesisBlock exec panic", "err", err)
 		}
 		c.addNewBlock(gb)
-		c.handleConsensusBlock(&types.NewBlock{Header: gb.Header, Tx0: gb.Txs[0]})
+		// c.handleConsensusBlock(&types.NewBlock{Header: gb.Header, Tx0: gb.Txs[0]})
 		if c.Single {
 			c.firstSort(gb)
 			return
@@ -875,7 +808,7 @@ func (c *Consensus) firstSort(zb *types.Block) {
 			c.voteCommittee(i, round)
 		}
 	}
-	c.voteBlock(0, 0)
+	// c.voteBlock(0, 0)
 }
 
 // TODO: peerlist and data node list

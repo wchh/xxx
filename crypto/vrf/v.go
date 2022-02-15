@@ -1,21 +1,17 @@
 package vrf
 
 import (
-	"bytes"
-	"crypto/rand"
-
-	"github.com/yahoo/coname/vrf"
+	"errors"
+	"xxx/crypto"
 )
 
-type PrivateKey []byte
-type PublicKey []byte
+type PrivateKey crypto.PrivateKey
+type PublicKey crypto.PublicKey
 
-func (priv PrivateKey) Evaluate(m []byte) (index [32]byte, proof []byte) {
-	var sk [vrf.SecretKeySize]byte
-	copy(sk[:], priv)
-	hash, p := vrf.Prove(m, &sk)
-	copy(index[:], hash)
-	proof = p
+func (sk PrivateKey) Evaluate(m []byte) (index [32]byte, proof []byte) {
+	h := crypto.DoubleHash(m)
+	copy(index[:], h)
+	proof = crypto.Sign(crypto.PrivateKey(sk), h)
 	return
 }
 
@@ -23,17 +19,23 @@ func (priv PrivateKey) Public() PublicKey {
 	return (PublicKey)(priv[32:])
 }
 
-func (p PublicKey) Verify(h, m, proof []byte) bool {
-	return vrf.Verify(p, m, h, proof)
+func (pk PublicKey) PoofToHash(m, proof []byte) (index [32]byte, err error) {
+	h := crypto.DoubleHash(m)
+	if !crypto.Verify(crypto.PublicKey(pk), h, proof) {
+		err = errors.New("vevify failed")
+		return
+	}
+	copy(index[:], h)
+	return
 }
 
-func NewKey() (PrivateKey, error) {
-	_, sk, err := vrf.GenerateKey(rand.Reader)
-	return sk[:], err
-}
+// func NewKey() (PrivateKey, error) {
+// 	_, sk, err := vrf.GenerateKey(rand.Reader)
+// 	return sk[:], err
+// }
 
-func NewKeyFromSeed(seed []byte) (PrivateKey, error) {
-	r := bytes.NewBuffer(seed)
-	_, sk, err := vrf.GenerateKey(r)
-	return sk[:], err
-}
+// func NewKeyFromSeed(seed []byte) (PrivateKey, error) {
+// 	r := bytes.NewBuffer(seed)
+// 	_, sk, err := vrf.GenerateKey(r)
+// 	return sk[:], err
+// }

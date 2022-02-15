@@ -2,85 +2,75 @@ package consensus
 
 import (
 	"errors"
-	"sync"
 	"xxx/types"
 )
 
-func txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][]byte, error) {
-	ch := make(chan *types.Tx)
-	done := make(chan struct{})
-	errch := make(chan error, 1)
-	tch := make(chan *types.Tx, 1)
-	hch := make(chan []byte, 1)
-	wg := new(sync.WaitGroup)
-	for i := 0; i < cpuNum; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				select {
-				case <-done:
-					return
-				case tx := <-ch:
-					if !tx.Verify() {
-						hch <- tx.Hash()
-						if errReturn {
-							select {
-							case errch <- errors.New("tx verify error"):
-							default:
-							}
-						}
-					} else {
-						tch <- tx
-					}
-				}
-			}
-		}()
-	}
+type taskResult struct {
+	tx *types.Tx
+	ok bool
+}
+type txVerifyTask struct {
+	tx *types.Tx
+	ch chan *taskResult
+}
 
-	wg2 := new(sync.WaitGroup)
-	wg2.Add(2)
-	var rtxs []*types.Tx
-	go func() {
-		for tx := range tch {
-			rtxs = append(rtxs, tx)
-		}
-		wg2.Done()
-	}()
+func (t *txVerifyTask) Do() {
+	t.ch <- &taskResult{tx: t.tx, ok: t.tx.Verify()}
+}
 
-	var rhs [][]byte
-	go func() {
-		for h := range hch {
-			rhs = append(rhs, h)
-		}
-		wg2.Done()
-	}()
+func (c *Consensus) txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][]byte, error) {
+	ch := make(chan *taskResult) // 任务处理结果
+	defer close(ch)
 
-	done2 := make(chan struct{})
+	done := make(chan struct{}) // 如果有错误，就终止发送任务
+	ich := make(chan int)       // 指示发送了多少任务
+	pool := c.pool
+
 	go func() {
-		defer close(done)
-		for _, tx := range txs {
+		defer close(ich)
+		for i, tx := range txs {
+			pool.Put(&txVerifyTask{tx, ch})
 			select {
-			case <-done2:
+			case <-done:
+				ich <- i + 1
 				return
 			default:
 			}
-			ch <- tx
 		}
+		ich <- len(txs)
 	}()
 
+	var okTxs []*types.Tx
+	var faildHashs [][]byte
 	var err error
-	select {
-	case err = <-errch:
-		if errReturn {
-			close(done2)
-		}
-	case <-done:
-	}
+	k := 0
+	j := 0
 
-	wg.Wait()
-	close(tch)
-	close(hch)
-	wg2.Wait()
-	return rtxs, rhs, err
+	for {
+		vr := <-ch
+		if vr.ok {
+			okTxs = append(okTxs, vr.tx)
+		} else {
+			if errReturn {
+				err = errors.New("tx signature verify failed")
+				close(done)
+			}
+			faildHashs = append(faildHashs, vr.tx.Hash())
+		}
+
+		//k 用于指示接收了多少结果
+		//当发送的任务和接收的结果相同时，退出循环，这时才可以关闭 ch
+		k++
+		select {
+		case j = <-ich:
+		default:
+		}
+		if j == k {
+			break
+		}
+	}
+	if err == nil {
+		close(done)
+	}
+	return okTxs, faildHashs, err
 }
