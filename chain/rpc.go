@@ -16,6 +16,14 @@ func (c *Chain) GetPreBlocks(ctx context.Context, args *types.GetBlocks, reply *
 	return nil
 }
 
+func (c *Chain) SetNewBlock(ctx context.Context, args *types.NewBlock, reply *struct{}) error {
+	err := c.handleNewBlock(args)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *Chain) GetBlocks(ctx context.Context, args *types.GetBlocks, reply *types.BlocksReply) error {
 	br, err := c.getBlocks(args)
 	if err != nil {
@@ -53,20 +61,20 @@ func (c *Chain) QueryBlock(ctx context.Context, args []byte, reply *types.Block)
 	return nil
 }
 
-func (c *Chain) PeersInfo(ctx context.Context, args *struct{}, reply *types.PeersInfo) error {
-	return nil
-}
-
-func (c *Chain) ServerInfo(ctx context.Context, args *struct{}, reply *types.ServerInfo) error {
-	return nil
-}
-
 func (c *Chain) QueryBlockByHeight(ctx context.Context, args int64, reply *types.Block) error {
 	b, err := c.GetBlockByHeight(args)
 	if err != nil {
 		return err
 	}
 	*reply = *b
+	return nil
+}
+
+func (c *Chain) PeersInfo(ctx context.Context, args *struct{}, reply *types.PeersInfo) error {
+	return nil
+}
+
+func (c *Chain) ServerInfo(ctx context.Context, args *struct{}, reply *types.ServerInfo) error {
 	return nil
 }
 

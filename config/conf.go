@@ -16,7 +16,7 @@ type Config struct {
 }
 
 type ConsensusConfig struct {
-	DataNodes            []string
+	DataNode             string
 	BootPeers            []string
 	PrivateSeed          string
 	GenesisSeed          string

@@ -37,7 +37,7 @@ func (t *sortTask) Do() {
 
 var max = big.NewInt(0).Exp(big.NewInt(2), big.NewInt(256), nil)
 var fmax = big.NewFloat(0).SetInt(max) // 2^^256
-func (c *Consensus) vrfSortiton(input *types.VrfInput, n, g int, diff float64) (*types.Sortition, error) {
+func (c *Consensus) vrfSortiton(input *types.VrfInput, count, group int, diff float64) (*types.Sortition, error) {
 	in, err := types.Marshal(input)
 	if err != nil {
 		return nil, err
@@ -49,15 +49,15 @@ func (c *Consensus) vrfSortiton(input *types.VrfInput, n, g int, diff float64) (
 
 	ch := make(chan *types.SortHash, 8)
 	go func() {
-		for j := 0; j < g; j++ {
-			for i := 0; i < n; i++ {
+		for j := 0; j < group; j++ {
+			for i := 0; i < count; i++ {
 				c.pool.Put(&sortTask{vrfHash: vrfHash[:], index: i, group: j, diff: diff, ch: ch})
 			}
 		}
 	}()
 	var ss []*types.SortHash
 	k := 0
-	for k < n*g {
+	for k < count*group {
 		sh := <-ch
 		if sh != nil {
 			ss = append(ss, sh)

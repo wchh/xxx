@@ -197,3 +197,48 @@ func TxsMerkel(txs []*Tx) []byte {
 	}
 	return crypto.Merkle(hashs)
 }
+
+// proto msg
+type PMsg struct {
+	PID   string
+	Topic string
+	Msg   Message
+}
+
+// const defaultMaxSize = 1024 * 1024
+
+// gossip message
+type GMsg struct {
+	Topic string
+	Data  []byte
+	PID   string
+}
+
+const (
+	BlockTopic    = "block"
+	PreBlockTopic = "preblock"
+	NewBlockTopic = "newblock"
+
+	MakerSortTopic      = "makersort"
+	CommitteeSortTopic  = "committeesort"
+	ConsensusBlockTopic = "consensusblock"
+
+	MakerVoteTopic     = "makervote"
+	CommitteeVoteTopic = "committeevote"
+
+	PeerInfoTopic = "peerinfo"
+)
+
+var ChainTopics = []string{
+	BlockTopic,
+	PreBlockTopic,
+	NewBlockTopic,
+	MakerSortTopic,
+	CommitteeSortTopic,
+	ConsensusBlockTopic,
+	MakerVoteTopic,
+	CommitteeVoteTopic,
+	PeerInfoTopic,
+}
+
+var ConsensusTopcs = ChainTopics

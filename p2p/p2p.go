@@ -41,22 +41,8 @@ type Node struct {
 	tmap map[string]*pubsub.Topic
 	smap map[string]stream
 
-	C    chan *Msg
-	smch chan *Tmsg
-}
-
-type Tmsg struct {
-	PID   string
-	Topic string
-	Msg   types.Message
-}
-
-// const defaultMaxSize = 1024 * 1024
-
-type Msg struct {
-	Topic string
-	Data  []byte
-	PID   string
+	C    chan *types.GMsg
+	smch chan *types.PMsg
 }
 
 type Conf struct {
@@ -92,8 +78,8 @@ func NewNode(conf *Conf) (*Node, error) {
 		Conf: conf,
 		tmap: make(map[string]*pubsub.Topic),
 		smap: make(map[string]stream),
-		C:    make(chan *Msg, 64),
-		smch: make(chan *Tmsg, 1),
+		C:    make(chan *types.GMsg, 64),
+		smch: make(chan *types.PMsg, 1),
 	}
 	g.setHandler()
 	topics := conf.Topics
@@ -191,7 +177,7 @@ func (g *Node) handleIncoming(s network.Stream) {
 			return
 		}
 		plog.Debugw("recv from remote peer", "protocolID", s.Protocol(), "remote peer", s.Conn().RemotePeer())
-		g.C <- &Msg{PID: s.ID(), Topic: m.Topic, Data: m.Data}
+		g.C <- &types.GMsg{PID: s.ID(), Topic: m.Topic, Data: m.Data}
 	}
 }
 
@@ -253,7 +239,7 @@ func (g *Node) run(ps *pubsub.PubSub, forwardPeers bool) {
 			if s.Topic() == remoteAddrTopic {
 				go g.handlePeers(m.Data)
 			} else {
-				g.C <- &Msg{Data: m.Data, Topic: s.Topic()}
+				g.C <- &types.GMsg{Data: m.Data, Topic: s.Topic()}
 			}
 		}
 	}
@@ -269,7 +255,7 @@ func (g *Node) run(ps *pubsub.PubSub, forwardPeers bool) {
 
 func (g *Node) runBootstrap(ps *pubsub.PubSub) {
 	for range time.NewTicker(time.Second * 60).C {
-		np := ps.ListPeers(PeerInfoTopic)
+		np := ps.ListPeers(types.PeerInfoTopic)
 		plog.Infow("pos33 peers ", "len", len(np), "peers", np)
 		if len(np) < 3 && len(np) < len(g.BootPeers) {
 			g.bootstrap(g.BootPeers...)
@@ -286,7 +272,7 @@ func (g *Node) publish(topic string, data []byte) error {
 }
 
 func (g *Node) Send(pid, topic string, msg types.Message) error {
-	g.smch <- &Tmsg{pid, topic, msg}
+	g.smch <- &types.PMsg{PID: pid, Topic: topic, Msg: msg}
 	return nil
 }
 
@@ -456,45 +442,6 @@ func discover(ctx context.Context, h host.Host, idht *dht.IpfsDHT, ns string) {
 //////////////////////////////////
 
 const (
-	PreBlockTopic = "preblock"
-	NewBlockTopic = "newblock"
-
-	MakerSortTopic      = "makersort"
-	CommitteeSortTopic  = "committeesort"
-	ConsensusBlockTopic = "consensusblock"
-
-	MakerVoteTopic     = "makervote"
-	CommitteeVoteTopic = "committeevote"
-	BlockVoteTopic     = "blockvote"
-
-	BlocksReplyTopic = "blocksreply"
-	GetBlocksTopic   = "getblocks"
-
-	PreBlocksReplyTopic = "preblocksreply"
-	GetPreBlocksTopic   = "getpreblocks"
-
-	PeerInfoTopic = "peerinfo"
-
 	remoteAddrTopic = "remoteaddress"
 	sendMsgTopic    = "sendmsg"
 )
-
-var ChainTopics = []string{
-	PreBlockTopic,
-	NewBlockTopic,
-	MakerSortTopic,
-	CommitteeSortTopic,
-	ConsensusBlockTopic,
-	MakerVoteTopic,
-	CommitteeVoteTopic,
-	BlockVoteTopic,
-	BlocksReplyTopic,
-	GetBlocksTopic,
-	PreBlocksReplyTopic,
-	GetPreBlocksTopic,
-	PeerInfoTopic,
-	// remoteAddrTopic,
-	// sendMsgTopic,
-}
-
-var ConsensusTopcs = ChainTopics

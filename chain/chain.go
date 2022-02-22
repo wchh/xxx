@@ -17,11 +17,11 @@ var clog = log.New("chain")
 type Chain struct {
 	*config.Config
 
-	mu        sync.Mutex
-	curHeight int64
-	n         *p2p.Node
-	db        db.DB
-	bm        map[int64]*types.Block
+	mu          sync.Mutex
+	curHeight   int64
+	n           *p2p.Node
+	db          db.DB
+	preblock_mp map[int64]*types.Block
 }
 
 func New(conf *config.Config) (*Chain, error) {
@@ -33,95 +33,98 @@ func New(conf *config.Config) (*Chain, error) {
 	if err != nil {
 		return nil, err
 	}
-	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort, Topics: p2p.ChainTopics}
+	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort, Topics: types.ChainTopics}
 	node, err := p2p.NewNode(p2pConf)
 	if err != nil {
 		return nil, err
 	}
 	return &Chain{
-		Config: conf,
-		db:     ldb,
-		n:      node,
-		bm:     make(map[int64]*types.Block),
+		Config:      conf,
+		db:          ldb,
+		n:           node,
+		preblock_mp: make(map[int64]*types.Block),
 	}, nil
 }
 
-func (c *Chain) handleP2pMsg(m *p2p.Msg) {
-	switch m.Topic {
-	case p2p.NewBlockTopic:
-		var b types.NewBlock
-		err := types.Unmarshal(m.Data, &b)
-		if err != nil {
-			panic(err)
-		}
-		c.handleNewBlock(&b)
-	case p2p.GetPreBlocksTopic:
-		var b types.GetBlocks
-		err := types.Unmarshal(m.Data, &b)
-		if err != nil {
-			panic(err)
-		}
-		c.handleGetPreBlocks(m.PID, &b)
-	case p2p.GetBlocksTopic:
-		var b types.GetBlocks
-		err := types.Unmarshal(m.Data, &b)
-		if err != nil {
-			panic(err)
-		}
-		c.handleGetBlocks(m.PID, &b)
-	}
-}
+// func (c *Chain) handleP2pMsg(m *p2p.Msg) {
+// 	switch m.Topic {
+// case p2p.NewBlockTopic:
+// 	var b types.NewBlock
+// 	err := types.Unmarshal(m.Data, &b)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	c.handleNewBlock(&b)
+// case p2p.GetPreBlocksTopic:
+// 	var b types.GetBlocks
+// 	err := types.Unmarshal(m.Data, &b)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	c.handleGetPreBlocks(m.PID, &b)
+// case p2p.GetBlocksTopic:
+// 	var b types.GetBlocks
+// 	err := types.Unmarshal(m.Data, &b)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	c.handleGetBlocks(m.PID, &b)
+// }
+// }
 
 func (c *Chain) Run() {
-	go runRpc(fmt.Sprintf(":%d", c.RpcPort), c)
-	for m := range c.n.C {
-		c.handleP2pMsg(m)
-	}
+	runRpc(fmt.Sprintf(":%d", c.RpcPort), c)
+	// for m := range c.n.C {
+	// 	c.handleP2pMsg(m)
+	// }
 }
 
-func (c *Chain) handleNewBlock(nb *types.NewBlock) {
+func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	cb := c.bm[nb.Header.Height]
+	clog.Infow("handleNewBlock", "height", nb.Header.Height)
+	if c.curHeight >= nb.Header.Height {
+		return nil
+	}
+
+	pb := c.preblock_mp[nb.Header.Height]
 	sb := &types.StoreBlock{Header: nb.Header}
 	sb.TxHashs = append(sb.TxHashs, nb.Tx0.Hash())
 	b := &types.Block{Header: nb.Header}
 
-	for _, tx := range cb.Txs {
-		f := false
+	for _, tx := range pb.Txs {
 		th := tx.Hash()
 		for _, h := range nb.FailedHashs {
 			if string(th) == string(h) {
-				f = true
-				break
+				continue
 			}
 		}
-		if !f {
-			sb.TxHashs = append(sb.TxHashs, th)
-			b.Txs = append(b.Txs, tx)
-		}
+		sb.TxHashs = append(sb.TxHashs, th)
+		b.Txs = append(b.Txs, tx)
 	}
 
 	_, err := c.writeTx(nb.Tx0)
 	if err != nil {
-		panic(err)
+		clog.Errorw("handleNewBlock error", "err", err, "height", nb.Header.Height)
+		return err
 	}
 
 	err = c.writeBlock(b.Hash(), sb)
 	if err != nil {
-		panic(err)
+		clog.Errorw("handleNewBlock error", "err", err, "height", nb.Header.Height)
+		return err
 	}
 	for _, h := range nb.FailedHashs {
 		c.db.Delete(h)
 	}
 
-	delete(c.bm, c.curHeight)
+	delete(c.preblock_mp, c.curHeight)
 	c.curHeight = nb.Header.Height
 
-	pb := c.bm[c.curHeight+int64(c.Chain.PreBlocks)]
-	pb.Header.TxsHash = types.TxsMerkel(pb.Txs)
-	// c.n.Publish(p2p.PreBlockTopic, pb)
+	npb := c.preblock_mp[c.curHeight+int64(c.Chain.PreBlocks)]
+	npb.Header.TxsHash = types.TxsMerkel(pb.Txs)
+	return nil
 }
 
 func (c *Chain) writeBlock(hash []byte, sb *types.StoreBlock) error {
@@ -148,18 +151,18 @@ func (c *Chain) writeTx(tx *types.Tx) ([]byte, error) {
 
 func (c *Chain) handleTxs(txs []*types.Tx) {
 	for _, tx := range txs {
-		th, err := c.writeTx(tx)
+		_, err := c.writeTx(tx)
 		if err != nil {
 			clog.Errorw("handleTxs error", "err", err)
 			return
 		}
 
 		c.mu.Lock()
-		height := c.curHeight + int64(c.Chain.PreBlocks) + int64(th[0]%byte(c.Chain.ShardNum))
-		b, ok := c.bm[height]
+		height := c.curHeight + int64(c.Chain.PreBlocks) //+ int64(th[0]%byte(c.Chain.ShardNum))
+		b, ok := c.preblock_mp[height]
 		if !ok {
 			b = &types.Block{Header: &types.Header{Height: height}}
-			c.bm[height] = b
+			c.preblock_mp[height] = b
 		}
 		b.Txs = append(b.Txs, tx)
 		clog.Infow("handleTxs", "ntx", len(b.Txs), "height", height)
@@ -211,15 +214,15 @@ func (c *Chain) getTx(h []byte) (*types.Tx, error) {
 	return tx, nil
 }
 
-func (c *Chain) handleGetPreBlocks(pid string, m *types.GetBlocks) {
-	br, _ := c.getPreBlocks(m)
-	c.n.Send(pid, p2p.PreBlocksReplyTopic, br)
-}
+// func (c *Chain) handleGetPreBlocks(pid string, m *types.GetBlocks) {
+// 	br, _ := c.getPreBlocks(m)
+// 	c.n.Send(pid, p2p.PreBlocksReplyTopic, br)
+// }
 
-func (c *Chain) handleGetBlocks(pid string, m *types.GetBlocks) {
-	br, _ := c.getBlocks(m)
-	c.n.Send(pid, p2p.BlocksReplyTopic, br)
-}
+// func (c *Chain) handleGetBlocks(pid string, m *types.GetBlocks) {
+// 	br, _ := c.getBlocks(m)
+// 	c.n.Send(pid, p2p.BlocksReplyTopic, br)
+// }
 
 func (c *Chain) getPreBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 	c.mu.Lock()
@@ -227,7 +230,7 @@ func (c *Chain) getPreBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 
 	var bs []*types.Block
 	for i := m.Start; i < m.Start+m.Count; i++ {
-		b, ok := c.bm[i]
+		b, ok := c.preblock_mp[i]
 		if !ok {
 			// return nil, fmt.Errorf("the %d preblock NOT here", i)
 			break
