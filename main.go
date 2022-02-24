@@ -12,64 +12,100 @@ import (
 	"xxx/chain"
 	"xxx/config"
 	"xxx/consensus"
-	"xxx/contract"
-	"xxx/contract/coin"
-	"xxx/contract/ycc"
 	"xxx/log"
 
 	"github.com/BurntSushi/toml"
+	"github.com/urfave/cli/v2"
 )
-
-var confPath = flag.String("c", "xxx.toml", "config path")
-
-type Config = config.Config
 
 var mlog = log.New("main")
 
 func main() {
 	flag.Parse()
 
-	conf := config.DefaultConfig
-	_, err := toml.DecodeFile(*confPath, conf)
-	if err != nil {
-		buf := new(bytes.Buffer)
-		encoder := toml.NewEncoder(buf)
-		err = encoder.Encode(conf)
+	readConfig := func(path string, conf interface{}) {
+		_, err := toml.DecodeFile(path, conf)
 		if err != nil {
-			panic(err)
+			buf := new(bytes.Buffer)
+			encoder := toml.NewEncoder(buf)
+			err = encoder.Encode(conf)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Println(buf.String())
+			os.WriteFile(path, buf.Bytes(), 0666)
 		}
-		fmt.Println(buf.String())
-		os.WriteFile(*confPath, buf.Bytes(), 0666)
-		return
 	}
+	type logInfo struct {
+		path  string
+		level string
+	}
+	logCh := make(chan logInfo)
+	defer close(logCh)
 
-	log.Init(conf.LogPath, conf.LogLevel)
+	go func() {
+		li := <-logCh
+		log.Init(li.path, li.level)
+		mlog.Info("xxx start run!!!")
+	}()
 	defer log.Sync()
 
-	mlog.Info("xxx start run!!!")
-
-	if conf.NodeType == "consensus" {
-		runConsensusNode(conf)
-	} else if conf.NodeType == "data" {
-		runDataNode(conf)
-	} else {
-		panic("not support")
+	app := &cli.App{
+		Commands: []*cli.Command{
+			{
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "config",
+						Aliases: []string{"c"},
+						Usage:   "config file path",
+						Value:   "xxx.toml",
+					},
+				},
+				Name:    "consensus",
+				Aliases: []string{"cons"},
+				Usage:   "run consensus node",
+				Action: func(c *cli.Context) error {
+					conf := config.DefaultConsensusConfig
+					readConfig(c.String("config"), conf)
+					logCh <- logInfo{conf.LogPath, conf.LogLevel}
+					go runConsensusNode(conf)
+					return nil
+				},
+			},
+			{
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "config",
+						Aliases: []string{"c"},
+						Usage:   "config file path",
+						Value:   "data.toml",
+					},
+				},
+				Name:    "data",
+				Aliases: []string{"dt"},
+				Usage:   "run data node",
+				Action: func(c *cli.Context) error {
+					conf := config.DefaultDataNodeConfig
+					readConfig(c.String("config"), conf)
+					logCh <- logInfo{conf.LogPath, conf.LogLevel}
+					go runDataNode(conf)
+					return nil
+				},
+			},
+		},
 	}
+	mlog.Fatal(app.Run(os.Args))
 }
 
-func runConsensusNode(conf *Config) {
-	cc := contract.New(conf.Contract)
-	coin.Init(cc)
-	ycc.Init(cc)
-
-	consensus, err := consensus.New(conf, cc)
+func runConsensusNode(conf *config.ConsensusConfig) {
+	consensus, err := consensus.New(conf)
 	if err != nil {
 		panic(err)
 	}
 	consensus.Run()
 }
 
-func runDataNode(conf *Config) {
+func runDataNode(conf *config.DataNodeConfig) {
 	ch, err := chain.New(conf)
 	if err != nil {
 		panic(err)

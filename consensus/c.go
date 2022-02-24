@@ -50,16 +50,22 @@ type Consensus struct {
 	pool *utils.GoPool
 }
 
-func New(conf *config.Config, cc *contract.Container) (*Consensus, error) {
+func initContracts(conf *config.ConsensusConfig) *contract.Container {
+	cc := contract.New(conf)
+	ycc.Init(cc)
+	coin.Init(cc)
+	return cc
+}
+
+func New(conf *config.ConsensusConfig) (*Consensus, error) {
 	ldb, err := db.NewLDB(conf.DataPath)
 	if err != nil {
 		return nil, err
 	}
-	if conf.Consensus.VotePrice == 0 {
-		conf.Consensus.VotePrice = 1000
+	if conf.VotePrice == 0 {
+		conf.VotePrice = 1000
 	}
-	conf.Consensus.VotePrice *= coin.CoinX
-	priv, err := crypto.PrivateKeyFromString(conf.Consensus.PrivateSeed)
+	priv, err := crypto.PrivateKeyFromString(conf.PrivateSeed)
 	if err != nil {
 		return nil, err
 	}
@@ -68,12 +74,13 @@ func New(conf *config.Config, cc *contract.Container) (*Consensus, error) {
 	if err != nil {
 		return nil, err
 	}
+	cc := initContracts(conf)
 	return &Consensus{
 		chid:            conf.ChainID,
 		version:         conf.Version,
 		rpcPort:         conf.RpcPort,
 		priv:            priv,
-		ConsensusConfig: conf.Consensus,
+		ConsensusConfig: conf,
 		node:            node,
 		db:              ldb,
 		cc:              cc,
@@ -134,7 +141,7 @@ func (c *Consensus) genesisBlock() (*types.Block, error) {
 	if err != nil {
 		return nil, err
 	}
-	da := c.GenesisDepositAmount * c.VotePrice
+	da := c.GenesisDepositAmount
 	tx1, err := ycc.CreateDepositTx(gsk, gaddr, da, 0)
 	if err != nil {
 		return nil, err
@@ -537,8 +544,8 @@ func (c *Consensus) difficulty(t, r int, h int64) float64 {
 			clog.Errorw("diff error", "err", err)
 			return 1
 		}
-		all = int(n / c.VotePrice)
-		c.alldeposit_mp[h] = all
+		// all = int(n / c.VotePrice)
+		c.alldeposit_mp[h] = int(n)
 	}
 
 	allf := float64(all) * math.Pow(0.9, float64(r))
@@ -607,8 +614,8 @@ func (c *Consensus) sortition(b *types.Block, round int) {
 	}
 	height := b.Header.Height + int64(c.AdvSortBlocks)
 	seed := b.Hash()
-	c.sortMaker(height, round, int(amount/c.VotePrice), seed)
-	c.sortCommittee(height, round, int(amount/c.VotePrice), seed)
+	c.sortMaker(height, round, int(amount), seed)
+	c.sortCommittee(height, round, int(amount), seed)
 }
 
 func (c *Consensus) sortMaker(height int64, round, count int, seed []byte) {
@@ -771,8 +778,8 @@ func (c *Consensus) firstSort(zb *types.Block) {
 	seed := zb.Hash()
 	round := 0
 	for i := int64(0); i < int64(c.AdvSortBlocks); i++ {
-		c.sortMaker(i, round, int(n/c.VotePrice), seed)
-		c.sortCommittee(i, round, int(n/c.VotePrice), seed)
+		c.sortMaker(i, round, int(n), seed)
+		c.sortCommittee(i, round, int(n), seed)
 		if i < int64(c.AdvVoteBlocks) {
 			c.voteMaker(i, round)
 			c.voteCommittee(i, round)

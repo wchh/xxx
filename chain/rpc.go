@@ -81,5 +81,5 @@ func (c *Chain) ServerInfo(ctx context.Context, args *struct{}, reply *types.Ser
 func runRpc(addr string, c *Chain) {
 	s := server.NewServer()
 	s.RegisterName("Chain", c, "")
-	go s.Serve("tcp", addr)
+	s.Serve("tcp", addr)
 }

@@ -42,7 +42,7 @@ func (c *Consensus) QueryIssue(ctx context.Context, args *struct{}, reply *int64
 	return nil
 }
 
-func (c *Consensus) QueryVotePrice(ctx context.Context, args *struct{}, reply *int64) error {
+func (c *Consensus) QueryVotePrice(ctx context.Context, args *struct{}, reply *float64) error {
 	*reply = c.VotePrice
 	return nil
 }

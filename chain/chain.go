@@ -15,7 +15,7 @@ import (
 var clog = log.New("chain")
 
 type Chain struct {
-	*config.Config
+	*config.DataNodeConfig
 
 	mu          sync.Mutex
 	curHeight   int64
@@ -24,25 +24,25 @@ type Chain struct {
 	preblock_mp map[int64]*types.Block
 }
 
-func New(conf *config.Config) (*Chain, error) {
+func New(conf *config.DataNodeConfig) (*Chain, error) {
 	ldb, err := db.NewLDB(conf.DataPath)
 	if err != nil {
 		return nil, err
 	}
-	priv, err := crypto.PrivateKeyFromString(conf.Consensus.PrivateSeed)
+	priv, err := crypto.PrivateKeyFromString(conf.PrivateSeed)
 	if err != nil {
 		return nil, err
 	}
-	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort, Topics: types.ChainTopics}
+	p2pConf := &p2p.Conf{Priv: priv, Port: conf.RpcPort, Topics: types.ChainTopics}
 	node, err := p2p.NewNode(p2pConf)
 	if err != nil {
 		return nil, err
 	}
 	return &Chain{
-		Config:      conf,
-		db:          ldb,
-		n:           node,
-		preblock_mp: make(map[int64]*types.Block),
+		DataNodeConfig: conf,
+		db:             ldb,
+		n:              node,
+		preblock_mp:    make(map[int64]*types.Block),
 	}, nil
 }
 
@@ -122,7 +122,7 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 	delete(c.preblock_mp, c.curHeight)
 	c.curHeight = nb.Header.Height
 
-	npb := c.preblock_mp[c.curHeight+int64(c.Chain.PreBlocks)]
+	npb := c.preblock_mp[c.curHeight+int64(c.PreBlocks)]
 	npb.Header.TxsHash = types.TxsMerkel(pb.Txs)
 	return nil
 }
@@ -157,17 +157,17 @@ func (c *Chain) handleTxs(txs []*types.Tx) {
 			return
 		}
 
-		c.mu.Lock()
-		height := c.curHeight + int64(c.Chain.PreBlocks) //+ int64(th[0]%byte(c.Chain.ShardNum))
-		b, ok := c.preblock_mp[height]
-		if !ok {
-			b = &types.Block{Header: &types.Header{Height: height}}
-			c.preblock_mp[height] = b
-		}
-		b.Txs = append(b.Txs, tx)
-		clog.Infow("handleTxs", "ntx", len(b.Txs), "height", height)
-		c.mu.Unlock()
 	}
+	c.mu.Lock()
+	height := c.curHeight + int64(c.PreBlocks) //+ int64(th[0]%byte(c.Chain.ShardNum))
+	b, ok := c.preblock_mp[height]
+	if !ok {
+		b = &types.Block{Header: &types.Header{Height: height}}
+		c.preblock_mp[height] = b
+	}
+	b.Txs = append(b.Txs, txs...)
+	c.mu.Unlock()
+	clog.Infow("handleTxs", "ntx", len(b.Txs), "height", height)
 }
 
 func (c *Chain) GetBlockByHeight(height int64) (*types.Block, error) {

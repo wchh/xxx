@@ -85,7 +85,8 @@ func (y *Ycc) deposit(from, to string, amount int64) error {
 	ylog.Infow("ycc.deposit", "from", from, "to", to, "amount", amount)
 	c := y.Container.GetContract(coin.Name).Clone()
 	co := c.(*coin.Coin)
-	err := co.Transfer(from, Address(), amount)
+	realAmount := y.CoinPricition * int64(y.VotePrice) * amount
+	err := co.Transfer(from, Address(), realAmount)
 	if err != nil {
 		return err
 	}
@@ -130,7 +131,8 @@ func (y *Ycc) withdraw(from, to string, amount int64) error {
 
 	c := y.Container.GetContract(coin.Name).Clone()
 	co := c.(*coin.Coin)
-	return co.Transfer(Address(), to, amount)
+	realAmount := y.CoinPricition * int64(y.VotePrice) * amount
+	return co.Transfer(Address(), to, realAmount)
 }
 
 var yccAddr string
@@ -144,7 +146,7 @@ func Address() string {
 }
 
 func (y *Ycc) Punish(addr string, amount int64) error {
-	return y.withdraw(addr, y.FundAddr, amount)
+	return y.withdraw(addr, y.FundAddress, amount)
 }
 
 func (y *Ycc) mine(msg types.Message) error {
@@ -176,7 +178,7 @@ func (y *Ycc) mine(msg types.Message) error {
 	}
 
 	all -= MakerReward * int64(nvote)
-	return co.Issue(y.FundAddr, all)
+	return co.Issue(y.FundAddress, all)
 }
 
 func QueryAllDeposit(db db.KV) (int64, error) {

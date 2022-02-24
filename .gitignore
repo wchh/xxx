@@ -5,6 +5,7 @@
 *.so
 *.dylib
 *.log
+*.txt
 xxx
 data
 log

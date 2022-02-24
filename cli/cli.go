@@ -427,8 +427,6 @@ func query_block(hash string, height int64) error {
 	return nil
 }
 
-// TODO: deposit and withdraw use number of vote
-
 func randAddress() string {
 	const S = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	l := len(S)

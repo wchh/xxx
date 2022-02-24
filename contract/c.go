@@ -33,14 +33,14 @@ type Contract interface {
 // func (b *Base) GetDB() *db.StateDB            { return b.db }
 
 type Container struct {
-	*config.ConstractConfig
+	*config.ConsensusConfig
 	contractMap map[string]Contract
 	db          db.KV
 	height      int64
 }
 
-func New(conf *config.ConstractConfig) *Container {
-	c := &Container{contractMap: make(map[string]Contract), ConstractConfig: conf}
+func New(conf *config.ConsensusConfig) *Container {
+	c := &Container{contractMap: make(map[string]Contract), ConsensusConfig: conf}
 	// c.Register(&Base{db: db})
 	return c
 }
@@ -71,7 +71,7 @@ func (cl *Container) SetDB(db db.KV) {
 
 func (cl *Container) processFee(from string) error {
 	fee := cl.GetContract("coin").(feeContract)
-	return fee.Fee(from, cl.TxFee)
+	return fee.Fee(from, int64(cl.TxFee*float64(cl.CoinPricition)))
 }
 
 func (cl *Container) ExecTx(tx *types.Tx) error {
