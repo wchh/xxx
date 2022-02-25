@@ -14,6 +14,46 @@ import (
 
 var clog = log.New("chain")
 
+type preBlock struct {
+	mu sync.Mutex
+	b  *types.Block
+}
+
+func (pb *preBlock) txsLen() int {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	return len(pb.b.Txs)
+}
+
+func (pb *preBlock) merkel() {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	pb.b.Header.TxsHash = types.TxsMerkel(pb.b.Txs)
+}
+
+func (pb *preBlock) setTxs(txs []*types.Tx) {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	pb.b.Txs = append(pb.b.Txs, txs...)
+}
+
+func (pb *preBlock) handleNewBlock(nb *types.NewBlock) *types.StoreBlock {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	sb := &types.StoreBlock{Header: nb.Header}
+	sb.TxHashs = [][]byte{nb.Tx0.Hash()}
+	for _, tx := range pb.b.Txs {
+		th := tx.Hash()
+		for _, h := range nb.FailedHashs {
+			if string(th) == string(h) {
+				continue
+			}
+		}
+		sb.TxHashs = append(sb.TxHashs, th)
+	}
+	return sb
+}
+
 type Chain struct {
 	*config.DataNodeConfig
 
@@ -21,7 +61,7 @@ type Chain struct {
 	curHeight   int64
 	n           *p2p.Node
 	db          db.DB
-	preblock_mp map[int64]*types.Block
+	preblock_mp map[int64]*preBlock
 }
 
 func New(conf *config.DataNodeConfig) (*Chain, error) {
@@ -42,7 +82,7 @@ func New(conf *config.DataNodeConfig) (*Chain, error) {
 		DataNodeConfig: conf,
 		db:             ldb,
 		n:              node,
-		preblock_mp:    make(map[int64]*types.Block),
+		preblock_mp:    make(map[int64]*preBlock),
 	}, nil
 }
 
@@ -80,28 +120,9 @@ func (c *Chain) Run() {
 }
 
 func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	clog.Infow("handleNewBlock", "height", nb.Header.Height)
 	if c.curHeight >= nb.Header.Height {
 		return nil
-	}
-
-	pb := c.preblock_mp[nb.Header.Height]
-	sb := &types.StoreBlock{Header: nb.Header}
-	sb.TxHashs = append(sb.TxHashs, nb.Tx0.Hash())
-	b := &types.Block{Header: nb.Header}
-
-	for _, tx := range pb.Txs {
-		th := tx.Hash()
-		for _, h := range nb.FailedHashs {
-			if string(th) == string(h) {
-				continue
-			}
-		}
-		sb.TxHashs = append(sb.TxHashs, th)
-		b.Txs = append(b.Txs, tx)
 	}
 
 	_, err := c.writeTx(nb.Tx0)
@@ -110,7 +131,20 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 		return err
 	}
 
-	err = c.writeBlock(b.Hash(), sb)
+	var sb *types.StoreBlock
+	c.mu.Lock()
+	pb, ok := c.preblock_mp[nb.Header.Height]
+	c.mu.Unlock()
+	if ok {
+		sb = pb.handleNewBlock(nb)
+	} else {
+		sb = &types.StoreBlock{
+			Header:  nb.Header,
+			TxHashs: [][]byte{nb.Tx0.Hash()},
+		}
+	}
+
+	err = c.writeBlock(sb)
 	if err != nil {
 		clog.Errorw("handleNewBlock error", "err", err, "height", nb.Header.Height)
 		return err
@@ -119,24 +153,28 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 		c.db.Delete(h)
 	}
 
-	delete(c.preblock_mp, c.curHeight)
+	c.mu.Lock()
 	c.curHeight = nb.Header.Height
-
-	npb := c.preblock_mp[c.curHeight+int64(c.PreBlocks)]
-	npb.Header.TxsHash = types.TxsMerkel(pb.Txs)
+	delete(c.preblock_mp, c.curHeight)
+	npb, ok := c.preblock_mp[c.curHeight+int64(c.PreBlocks)]
+	c.mu.Unlock()
+	if ok {
+		npb.merkel()
+	}
 	return nil
 }
 
-func (c *Chain) writeBlock(hash []byte, sb *types.StoreBlock) error {
+func (c *Chain) writeBlock(sb *types.StoreBlock) error {
 	val, err := types.Marshal(sb)
 	if err != nil {
 		return err
 	}
-	err = c.db.Set([]byte(fmt.Sprintf("%d", sb.Header.Height)), hash)
+	bh := sb.Header.Hash()
+	err = c.db.Set([]byte(fmt.Sprintf("%d", sb.Header.Height)), bh)
 	if err != nil {
 		return err
 	}
-	return c.db.Set(hash, val)
+	return c.db.Set(bh, val)
 }
 
 func (c *Chain) writeTx(tx *types.Tx) ([]byte, error) {
@@ -160,14 +198,15 @@ func (c *Chain) handleTxs(txs []*types.Tx) {
 	}
 	c.mu.Lock()
 	height := c.curHeight + int64(c.PreBlocks) //+ int64(th[0]%byte(c.Chain.ShardNum))
-	b, ok := c.preblock_mp[height]
+	pb, ok := c.preblock_mp[height]
 	if !ok {
-		b = &types.Block{Header: &types.Header{Height: height}}
-		c.preblock_mp[height] = b
+		b := &types.Block{Header: &types.Header{Height: height}}
+		pb = &preBlock{b: b}
+		c.preblock_mp[height] = pb
 	}
-	b.Txs = append(b.Txs, txs...)
 	c.mu.Unlock()
-	clog.Infow("handleTxs", "ntx", len(b.Txs), "height", height)
+	pb.setTxs(txs)
+	clog.Infow("handleTxs", "ntx", pb.txsLen(), "height", height)
 }
 
 func (c *Chain) GetBlockByHeight(height int64) (*types.Block, error) {
@@ -230,12 +269,12 @@ func (c *Chain) getPreBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 
 	var bs []*types.Block
 	for i := m.Start; i < m.Start+m.Count; i++ {
-		b, ok := c.preblock_mp[i]
+		pb, ok := c.preblock_mp[i]
 		if !ok {
 			// return nil, fmt.Errorf("the %d preblock NOT here", i)
 			break
 		}
-		bs = append(bs, b)
+		bs = append(bs, pb.b)
 	}
 	return &types.BlocksReply{Bs: bs, LastHeight: c.curHeight}, nil
 }

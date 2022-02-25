@@ -41,8 +41,9 @@ type DataNodeConfig struct {
 	LogLevel    string
 	PrivateSeed string
 
-	RpcPort   int
-	PreBlocks int // 提前
+	RpcPort     int
+	PreBlocks   int // 提前
+	MaxBlockTxs int
 }
 
 var DefaultConsensusConfig = &ConsensusConfig{

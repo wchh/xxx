@@ -169,7 +169,7 @@ func (c *Consensus) handlePMsg(msg *types.PMsg) {
 	case types.BlockTopic:
 		c.handleBlocks(msg.Msg.(*types.BlocksReply))
 	case types.PreBlockTopic:
-		c.handlePreBlock(msg.Msg.(*types.PreBlock))
+		c.handlePreBlock(msg.Msg.(*types.Block))
 	case types.MakerSortTopic:
 		c.handleMakerSort(msg.Msg.(*types.Sortition))
 	case types.CommitteeSortTopic:
@@ -360,13 +360,13 @@ func (c *Consensus) makeBlock(pb *types.Block, round int) {
 	c.handleConsensusBlock(nb)
 }
 
-func (c *Consensus) handlePreBlock(b *types.PreBlock) {
-	txs := b.B.Txs
+func (c *Consensus) handlePreBlock(b *types.Block) {
+	txs := b.Txs
 	if c.CheckSig {
-		txs, _, _ = c.txsVerifySig(txs, 8, false)
-		b.B.Txs = txs
+		txs, _, _ = c.txsVerifySig(txs, false)
+		b.Txs = txs
 	}
-	c.preblock_mp[b.B.Header.Height] = b.B
+	c.preblock_mp[b.Header.Height] = b
 }
 
 func (c *Consensus) handleMakerVote(v *types.Vote) {
@@ -414,7 +414,7 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 	clog.Infow("preExecBlock", "height", b.Header.Height, "round", b.Header.Round, "ntx", len(b.Txs))
 	txs := b.Txs
 	if c.CheckSig {
-		txs, failedHash, _ = c.txsVerifySig(txs, 8, false)
+		txs, failedHash, _ = c.txsVerifySig(txs, false)
 	}
 
 	db := db.NewMDB(c.db)
@@ -464,7 +464,7 @@ func (c *Consensus) execBlock(b *types.Block) error {
 
 	txs := b.Txs
 	if c.CheckSig {
-		txs, _, err = c.txsVerifySig(txs, 8, true)
+		txs, _, err = c.txsVerifySig(txs, true)
 		if err != nil {
 			return err
 		}

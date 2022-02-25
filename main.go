@@ -68,7 +68,7 @@ func main() {
 					conf := config.DefaultConsensusConfig
 					readConfig(c.String("config"), conf)
 					logCh <- logInfo{conf.LogPath, conf.LogLevel}
-					go runConsensusNode(conf)
+					runConsensusNode(conf)
 					return nil
 				},
 			},
@@ -88,13 +88,13 @@ func main() {
 					conf := config.DefaultDataNodeConfig
 					readConfig(c.String("config"), conf)
 					logCh <- logInfo{conf.LogPath, conf.LogLevel}
-					go runDataNode(conf)
+					runDataNode(conf)
 					return nil
 				},
 			},
 		},
 	}
-	mlog.Fatal(app.Run(os.Args))
+	app.Run(os.Args)
 }
 
 func runConsensusNode(conf *config.ConsensusConfig) {

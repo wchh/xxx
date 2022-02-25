@@ -18,7 +18,7 @@ func (t *txVerifyTask) Do() {
 	t.ch <- &taskResult{tx: t.tx, ok: t.tx.Verify()}
 }
 
-func (c *Consensus) txsVerifySig(txs []*types.Tx, cpuNum int, errReturn bool) ([]*types.Tx, [][]byte, error) {
+func (c *Consensus) txsVerifySig(txs []*types.Tx,  errReturn bool) ([]*types.Tx, [][]byte, error) {
 	ch := make(chan *taskResult) // 任务处理结果
 	defer close(ch)
 
