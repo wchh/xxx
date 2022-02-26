@@ -79,12 +79,13 @@ func (c *Consensus) getPreBlocks(height int64) error {
 	return nil
 }
 
-func (c *Consensus) newRpcClient() error {
+func (c *Consensus) connectDatanode() error {
 	clt, err := c.getRpcClient(c.DataNode, "Chain")
 	if err != nil {
 		clog.Error("handleBlocksReply error", "err", err)
 		return err
 	}
+	clog.Infow("connect datanode", "datanode", c.DataNode)
 	c.rpcClt = clt
 	return nil
 }
@@ -103,6 +104,10 @@ func (c *Consensus) getBlocks(start, count int64) error {
 	return nil
 }
 
+func (c *Consensus) rpcSetNewBlock(nb *types.NewBlock) error {
+	return c.rpcClt.Call(context.Background(), "SetNewBlock", nb, nil)
+}
+
 func (c *Consensus) rpcGetBlocks(start, count int64, m string) (*types.BlocksReply, error) {
 	clt := c.rpcClt
 	r := &types.GetBlocks{
@@ -112,7 +117,7 @@ func (c *Consensus) rpcGetBlocks(start, count int64, m string) (*types.BlocksRep
 	var br types.BlocksReply
 	err := clt.Call(context.Background(), m, r, &br)
 	if err != nil {
-		clog.Error("handleBlocksReply error", "err", err)
+		clog.Error("rpcGetBlocks error", "err", err, "method", m)
 		return nil, err
 	}
 	return &br, nil

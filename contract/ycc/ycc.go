@@ -22,9 +22,9 @@ const (
 	PunishOp   = "punish"
 	MineOp     = "mine"
 
-	BlockReward = coin.CoinX * 30
-	VoteReward  = coin.CoinX / 2        // 0.5 ycc
-	MakerReward = coin.CoinX * 22 / 100 // 0.22 ycc
+	// BlockReward = coin.CoinX * 30
+	// VoteReward  = coin.CoinX / 2        // 0.5 ycc
+	// MakerReward = coin.CoinX * 22 / 100 // 0.22 ycc
 )
 
 type Ycc struct {
@@ -88,6 +88,7 @@ func (y *Ycc) deposit(from, to string, amount int64) error {
 	realAmount := y.CoinPricition * int64(y.VotePrice) * amount
 	err := co.Transfer(from, Address(), realAmount)
 	if err != nil {
+		ylog.Errorw("deposit error", "transfer err", err, "from", from)
 		return err
 	}
 
@@ -152,16 +153,17 @@ func (y *Ycc) Punish(addr string, amount int64) error {
 func (y *Ycc) mine(msg types.Message) error {
 	c := y.Container.GetContract(coin.Name).Clone()
 	co := c.(*coin.Coin)
-	all := BlockReward
+	all := y.CoinPricition * int64(y.BlockReward)
 
 	m := msg.(*types.Ycc_Mine)
 	mineAddr := (crypto.PublicKey)(m.Sort.Sig.PublicKey).Address()
 	nvote := types.Votes(m.Votes).Count()
 	ylog.Infow("mine ", "addr", mineAddr, "nvote", nvote)
 
+	vr := int64(float64(y.CoinPricition) * y.VoteReward)
 	for _, v := range m.Votes {
 		to := (crypto.PublicKey)(v.Sig.PublicKey).Address()
-		amount := VoteReward * int64(len(v.MyHashs))
+		amount := vr * int64(len(v.MyHashs))
 		err := co.Issue(to, amount)
 		if err != nil {
 			ylog.Errorw("mine error", "err", err)
@@ -171,13 +173,14 @@ func (y *Ycc) mine(msg types.Message) error {
 		all -= amount
 	}
 
-	err := co.Issue(mineAddr, MakerReward*int64(nvote))
+	mr := int64(float64(y.CoinPricition)*y.MakerReward) * int64(nvote)
+	err := co.Issue(mineAddr, mr)
 	if err != nil {
 		ylog.Errorw("mine error", "err", err)
 		return err
 	}
 
-	all -= MakerReward * int64(nvote)
+	all -= mr
 	return co.Issue(y.FundAddress, all)
 }
 

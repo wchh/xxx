@@ -2,6 +2,7 @@ package log
 
 import (
 	"os"
+	"path/filepath"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -26,11 +27,16 @@ func newEncoderConfig() zapcore.EncoderConfig {
 
 func Init(path, level string) {
 	wr := zapcore.AddSync(os.Stdout)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		os.MkdirAll(path, os.ModePerm)
+	}
+	fp := filepath.Join(path, "log.txt")
+	file, err := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err == nil {
 		wr = zapcore.NewMultiWriteSyncer(wr, zapcore.AddSync(file))
 	} else {
-		zap.S().DPanic(err)
+		panic(err)
 	}
 	core := zapcore.NewCore(
 		zapcore.NewConsoleEncoder(newEncoderConfig()),

@@ -53,7 +53,7 @@ func (c *Chain) QueryTx(ctx context.Context, args []byte, reply *types.Tx) error
 }
 
 func (c *Chain) QueryBlock(ctx context.Context, args []byte, reply *types.Block) error {
-	b, err := c.GetBlock(args)
+	b, err := c.getBlock(args)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (c *Chain) QueryBlock(ctx context.Context, args []byte, reply *types.Block)
 }
 
 func (c *Chain) QueryBlockByHeight(ctx context.Context, args int64, reply *types.Block) error {
-	b, err := c.GetBlockByHeight(args)
+	b, err := c.getBlockByHeight(args)
 	if err != nil {
 		return err
 	}
@@ -81,5 +81,6 @@ func (c *Chain) ServerInfo(ctx context.Context, args *struct{}, reply *types.Ser
 func runRpc(addr string, c *Chain) {
 	s := server.NewServer()
 	s.RegisterName("Chain", c, "")
+	clog.Infow("runRpc server", "server", addr)
 	s.Serve("tcp", addr)
 }

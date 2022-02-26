@@ -5,10 +5,8 @@ import (
 	"sync"
 
 	"xxx/config"
-	"xxx/crypto"
 	"xxx/db"
 	"xxx/log"
-	"xxx/p2p"
 	"xxx/types"
 )
 
@@ -57,9 +55,9 @@ func (pb *preBlock) handleNewBlock(nb *types.NewBlock) *types.StoreBlock {
 type Chain struct {
 	*config.DataNodeConfig
 
-	mu          sync.Mutex
-	curHeight   int64
-	n           *p2p.Node
+	mu        sync.Mutex
+	curHeight int64
+	// n           *p2p.Node
 	db          db.DB
 	preblock_mp map[int64]*preBlock
 }
@@ -69,20 +67,20 @@ func New(conf *config.DataNodeConfig) (*Chain, error) {
 	if err != nil {
 		return nil, err
 	}
-	priv, err := crypto.PrivateKeyFromString(conf.PrivateSeed)
-	if err != nil {
-		return nil, err
-	}
-	p2pConf := &p2p.Conf{Priv: priv, Port: conf.RpcPort, Topics: types.ChainTopics}
-	node, err := p2p.NewNode(p2pConf)
-	if err != nil {
-		return nil, err
-	}
+	// priv, err := crypto.PrivateKeyFromString(conf.PrivateSeed)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// p2pConf := &p2p.Conf{Priv: priv, Port: conf.RpcPort, Topics: types.ChainTopics}
+	// node, err := p2p.NewNode(p2pConf)
+	// if err != nil {
+	// 	return nil, err
+	// }
 	return &Chain{
 		DataNodeConfig: conf,
 		db:             ldb,
-		n:              node,
-		preblock_mp:    make(map[int64]*preBlock),
+		// n:              node,
+		preblock_mp: make(map[int64]*preBlock),
 	}, nil
 }
 
@@ -209,15 +207,15 @@ func (c *Chain) handleTxs(txs []*types.Tx) {
 	clog.Infow("handleTxs", "ntx", pb.txsLen(), "height", height)
 }
 
-func (c *Chain) GetBlockByHeight(height int64) (*types.Block, error) {
+func (c *Chain) getBlockByHeight(height int64) (*types.Block, error) {
 	hash, err := c.db.Get([]byte(fmt.Sprintf("%d", height)))
 	if err != nil {
 		return nil, err
 	}
-	return c.GetBlock(hash)
+	return c.getBlock(hash)
 }
 
-func (c *Chain) GetBlock(hash []byte) (*types.Block, error) {
+func (c *Chain) getBlock(hash []byte) (*types.Block, error) {
 	val, err := c.db.Get(hash)
 	if err != nil {
 		return nil, err
@@ -276,19 +274,21 @@ func (c *Chain) getPreBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 		}
 		bs = append(bs, pb.b)
 	}
+	clog.Infow("getPreBlock", "start", m.Start, "count", m.Count, "nb", len(bs))
 	return &types.BlocksReply{Bs: bs, LastHeight: c.curHeight}, nil
 }
 
 func (c *Chain) getBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 	var bs []*types.Block
 	for i := m.Start; i < m.Start+m.Count; i++ {
-		b, err := c.GetBlockByHeight(i)
+		b, err := c.getBlockByHeight(i)
 		if err != nil {
 			break
 		}
 		bs = append(bs, b)
 	}
 
+	clog.Infow("getBlock", "start", m.Start, "count", m.Count, "nb", len(bs))
 	return &types.BlocksReply{Bs: bs, LastHeight: c.curHeight}, nil
 }
 

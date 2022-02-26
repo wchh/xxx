@@ -18,16 +18,20 @@ func (t *txVerifyTask) Do() {
 	t.ch <- &taskResult{tx: t.tx, ok: t.tx.Verify()}
 }
 
-func (c *Consensus) txsVerifySig(txs []*types.Tx,  errReturn bool) ([]*types.Tx, [][]byte, error) {
+func (c *Consensus) txsVerifySig(txs []*types.Tx, errReturn bool) ([]*types.Tx, [][]byte, error) {
+	return txs, nil, nil
+}
+
+func (c *Consensus) txsVerifySig1(txs []*types.Tx, errReturn bool) ([]*types.Tx, [][]byte, error) {
+	clog.Infow("txsVerifySig", "ntx", len(txs))
 	ch := make(chan *taskResult) // 任务处理结果
 	defer close(ch)
-
+	ich := make(chan int) // 指示发送了多少任务
+	defer close(ich)
 	done := make(chan struct{}) // 如果有错误，就终止发送任务
-	ich := make(chan int)       // 指示发送了多少任务
-	pool := c.pool
 
+	pool := c.pool
 	go func() {
-		defer close(ich)
 		for i, tx := range txs {
 			pool.Put(&txVerifyTask{tx, ch})
 			select {
@@ -65,6 +69,7 @@ func (c *Consensus) txsVerifySig(txs []*types.Tx,  errReturn bool) ([]*types.Tx,
 		case j = <-ich:
 		default:
 		}
+		clog.Infow("go here", "k", k, "j", j)
 		if j == k {
 			break
 		}

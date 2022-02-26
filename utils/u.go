@@ -24,9 +24,7 @@ func Uncompress(data []byte) []byte {
 	return b.Bytes()
 }
 
-type Bytes []byte
-
-func (b Bytes) String() string {
+func ByteString(b []byte) string {
 	nb := b
 	if len(nb) > 8 {
 		nb = nb[:8]

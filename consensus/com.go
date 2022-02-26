@@ -48,8 +48,12 @@ const (
 )
 
 func (m *maker) setMaker() {
-	for k, v := range m.mvmp {
-		if len(v) < MustVotes {
+	for k, vs := range m.mvmp {
+		nv := 0
+		for _, v := range vs {
+			nv += len(v.MyHashs)
+		}
+		if nv < MustVotes {
 			delete(m.mvmp, k)
 		}
 	}
