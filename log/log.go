@@ -26,24 +26,25 @@ func newEncoderConfig() zapcore.EncoderConfig {
 }
 
 func Init(path, level string) {
-	wr := zapcore.AddSync(os.Stdout)
+	lv := conv_level(level)
+	encoderConf := newEncoderConfig()
+	consoleEncoder := zapcore.NewConsoleEncoder(encoderConf)
+	consoleCore := zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), lv)
+
 	_, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		os.MkdirAll(path, os.ModePerm)
 	}
 	fp := filepath.Join(path, "log.txt")
 	file, err := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err == nil {
-		wr = zapcore.NewMultiWriteSyncer(wr, zapcore.AddSync(file))
-	} else {
+	if err != nil {
 		panic(err)
 	}
-	core := zapcore.NewCore(
-		zapcore.NewConsoleEncoder(newEncoderConfig()),
-		wr,
-		conv_level(level),
-	)
-	logger := zap.New(core, zap.AddCaller()) //, zap.Development())
+	encoderConf.EncodeLevel = zapcore.CapitalLevelEncoder
+	fileEncoder := zapcore.NewConsoleEncoder(encoderConf)
+	fileCore := zapcore.NewCore(fileEncoder, zapcore.AddSync(file), lv)
+
+	logger := zap.New(zapcore.NewTee(consoleCore, fileCore), zap.AddCaller()) //, zap.Development())
 	zap.ReplaceGlobals(logger)
 
 	for m, l := range logger_map {
