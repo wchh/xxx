@@ -49,8 +49,8 @@ type DataNodeConfig struct {
 var DefaultConsensusConfig = &ConsensusConfig{
 	ChainID:              "xxx",
 	Version:              "0.0.1",
-	DataPath:             "./data/cons/",
-	LogPath:              "./logs/cons/",
+	DataPath:             "./data/",
+	LogPath:              "./logs/",
 	LogLevel:             "debug",
 	RpcPort:              4587,
 	ServerPort:           4589,
@@ -75,8 +75,8 @@ var DefaultConsensusConfig = &ConsensusConfig{
 var DefaultDataNodeConfig = &DataNodeConfig{
 	ChainID:     "xxx",
 	Version:     "0.0.1",
-	DataPath:    "./data/data/",
-	LogPath:     "./logs/data/",
+	DataPath:    "./data/",
+	LogPath:     "./logs/",
 	LogLevel:    "debug",
 	PrivateSeed: "0080242bfc85666aa8ce21846fa78d24898509fa8a60dd47ae80556798739617",
 	RpcPort:     5587,
