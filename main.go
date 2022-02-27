@@ -5,10 +5,8 @@ package main
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"os"
-	"time"
 
 	"xxx/chain"
 	"xxx/config"
@@ -16,28 +14,18 @@ import (
 	"xxx/log"
 
 	"github.com/BurntSushi/toml"
+	rpclog "github.com/smallnest/rpcx/log"
 	"github.com/urfave/cli/v2"
 )
 
-var mlog = log.New("main")
-
 func main() {
-	flag.Parse()
-
-	logCh := make(chan logInfo)
-	defer close(logCh)
-
-	go func() {
-		li := <-logCh
-		log.Init(li.path, li.level)
-		mlog.Info("xxx start run!!!")
-	}()
+	rpclog.SetDummyLogger()
 	defer log.Sync()
 
 	app := &cli.App{
 		Commands: []*cli.Command{
-			consensusCmd(logCh),
-			datanodeCmd(logCh),
+			consensusCmd(),
+			datanodeCmd(),
 		},
 	}
 	app.Run(os.Args)
@@ -62,7 +50,7 @@ func readConfig(path string, conf interface{}) {
 	}
 }
 
-func datanodeCmd(logCh chan<- logInfo) *cli.Command {
+func datanodeCmd() *cli.Command {
 	return &cli.Command{
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -78,15 +66,14 @@ func datanodeCmd(logCh chan<- logInfo) *cli.Command {
 		Action: func(c *cli.Context) error {
 			conf := config.DefaultDataNodeConfig
 			readConfig(c.String("config"), conf)
-			logCh <- logInfo{conf.LogPath, conf.LogLevel}
-			time.Sleep(time.Millisecond)
+			log.Init(conf.LogPath, conf.LogLevel)
 			runDataNode(conf)
 			return nil
 		},
 	}
 }
 
-func consensusCmd(logCh chan<- logInfo) *cli.Command {
+func consensusCmd() *cli.Command {
 	return &cli.Command{
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -102,8 +89,7 @@ func consensusCmd(logCh chan<- logInfo) *cli.Command {
 		Action: func(c *cli.Context) error {
 			conf := config.DefaultConsensusConfig
 			readConfig(c.String("config"), conf)
-			logCh <- logInfo{conf.LogPath, conf.LogLevel}
-			time.Sleep(time.Millisecond)
+			log.Init(conf.LogPath, conf.LogLevel)
 			runConsensusNode(conf)
 			return nil
 		},

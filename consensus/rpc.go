@@ -82,7 +82,7 @@ func (c *Consensus) getPreBlocks(height int64) error {
 func (c *Consensus) connectDatanode() error {
 	clt, err := c.getRpcClient(c.DataNode, "Chain")
 	if err != nil {
-		clog.Error("handleBlocksReply error", "err", err)
+		clog.Error("connectDatanode error", "err", err)
 		return err
 	}
 	clog.Infow("connect datanode", "datanode", c.DataNode)
