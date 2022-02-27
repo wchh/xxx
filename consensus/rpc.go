@@ -70,7 +70,7 @@ func (c *Consensus) getPreBlocks(height int64) error {
 		return err
 	}
 	if len(br.Bs) == 0 {
-		clog.Infow("getPreBlocks return 0 blocks")
+		clog.Infow("getPreBlocks return 0 blocks", "height", height)
 		return nil
 	}
 	for _, b := range br.Bs {

@@ -118,7 +118,6 @@ func (c *Chain) Run() {
 }
 
 func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
-	clog.Infow("handleNewBlock", "height", nb.Header.Height)
 	if c.curHeight >= nb.Header.Height {
 		return nil
 	}
@@ -159,6 +158,7 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 	if ok {
 		npb.merkel()
 	}
+	clog.Infow("handleNewBlock", "height", nb.Header.Height)
 	return nil
 }
 
@@ -204,7 +204,7 @@ func (c *Chain) handleTxs(txs []*types.Tx) {
 	}
 	c.mu.Unlock()
 	pb.setTxs(txs)
-	clog.Infow("handleTxs", "ntx", pb.txsLen(), "height", height)
+	// clog.Infow("handleTxs", "ntx", pb.txsLen(), "height", height)
 }
 
 func (c *Chain) getBlockByHeight(height int64) (*types.Block, error) {

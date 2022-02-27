@@ -1,7 +1,6 @@
 package consensus
 
 import (
-	"bytes"
 	"fmt"
 	"math"
 	"sort"
@@ -367,16 +366,11 @@ func (c *Consensus) makeBlock(height int64, round int) {
 	if !ok {
 		clog.Infow("makeBlock preBlock not in cache", "height", height)
 		b = &types.Block{
-			Header: &types.Header{
-				Height:     height,
-				ParentHash: ph,
-			},
-		}
-	} else {
-		if string(b.Header.ParentHash) != string(ph) {
-			panic("can't go here")
+			Header: &types.Header{},
 		}
 	}
+	b.Header.Height = height
+	b.Header.ParentHash = ph
 	b.Header.BlockTime = time.Now().UnixMilli()
 	b.Header.Round = int32(round)
 	b.Txs = append([]*types.Tx{tx0}, b.Txs...)
@@ -524,7 +518,7 @@ func (c *Consensus) setBlock(nb *types.NewBlock) {
 	comm := c.getCommittee(height, round)
 
 	b := comm.b
-	if b != nil && bytes.Equal(nb.Header.TxsHash, b.Header.TxsHash) { // my made block is ok
+	if b != nil && string(nb.Header.TxsHash) == string(b.Header.TxsHash) { // my made block is ok
 		comm.db.Commit()
 	} else {
 		pb := c.preblock_mp[height]

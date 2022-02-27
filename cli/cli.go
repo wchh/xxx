@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"time"
 
 	"xxx/contract/coin"
 	"xxx/contract/ycc"
@@ -36,7 +37,7 @@ func main() {
 			&cli.StringFlag{
 				Name:        "rpcaddr",
 				Aliases:     []string{"r"},
-				Value:       "localhost:3452",
+				Value:       "localhost:5587",
 				Usage:       "rpc server address",
 				Destination: &rpcAddr,
 			},
@@ -48,7 +49,8 @@ func main() {
 				Destination: &service,
 			},
 		},
-		Action: func(c *cli.Context) error {
+		Before: func(c *cli.Context) error {
+			log.Println("go here", rpcAddr)
 			d, err := client.NewPeer2PeerDiscovery("tcp@"+rpcAddr, "")
 			if err != nil {
 				panic(err)
@@ -95,7 +97,7 @@ func main() {
 					},
 					&cli.Int64Flag{
 						Name:    "height",
-						Aliases: []string{"h"},
+						Aliases: []string{"g"},
 						Usage:   "block height",
 					},
 				},
@@ -468,6 +470,7 @@ func runSendTx() error {
 		if i == N {
 			i = 0
 			xclient.Call(context.Background(), "SendTxs", txs, &struct{}{})
+			time.Sleep(time.Second)
 		}
 	}
 	return nil
