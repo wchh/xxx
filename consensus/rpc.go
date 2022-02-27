@@ -117,7 +117,7 @@ func (c *Consensus) rpcGetBlocks(start, count int64, m string) (*types.BlocksRep
 	var br types.BlocksReply
 	err := clt.Call(context.Background(), m, r, &br)
 	if err != nil {
-		clog.Error("rpcGetBlocks error", "err", err, "method", m)
+		clog.Errorw("rpcGetBlocks error", "err", err, "method", m)
 		return nil, err
 	}
 	return &br, nil

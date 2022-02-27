@@ -9,7 +9,6 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"time"
 
 	"xxx/contract/coin"
 	"xxx/contract/ycc"
@@ -470,7 +469,7 @@ func runSendTx() error {
 		if i == N {
 			i = 0
 			xclient.Call(context.Background(), "SendTxs", txs, &struct{}{})
-			time.Sleep(time.Second)
+			// time.Sleep(time.Second)
 		}
 	}
 	return nil
