@@ -52,9 +52,9 @@ var DefaultConsensusConfig = &ConsensusConfig{
 	DataPath:             "./data/",
 	LogPath:              "./logs/",
 	LogLevel:             "debug",
-	RpcPort:              4587,
-	ServerPort:           4589,
-	DataNode:             "localhost:5587",
+	RpcPort:              10801,
+	ServerPort:           10901,
+	DataNode:             "localhost:10801",
 	BootPeers:            []string{},
 	FundAddress:          "3ftLmbf3MEPXTJYmd4HsRtKqUgy",
 	PrivateSeed:          "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05",
@@ -80,7 +80,7 @@ var DefaultDataNodeConfig = &DataNodeConfig{
 	LogPath:     "./logs/",
 	LogLevel:    "debug",
 	PrivateSeed: "0080242bfc85666aa8ce21846fa78d24898509fa8a60dd47ae80556798739617",
-	RpcPort:     5587,
+	RpcPort:     10801,
 	PreBlocks:   4,
 }
 

@@ -9,11 +9,13 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"time"
 
 	"xxx/contract/coin"
 	"xxx/contract/ycc"
 	"xxx/crypto"
 	"xxx/types"
+	"xxx/utils"
 
 	"github.com/smallnest/rpcx/client"
 	"github.com/smallnest/rpcx/protocol"
@@ -36,7 +38,7 @@ func main() {
 			&cli.StringFlag{
 				Name:        "rpcaddr",
 				Aliases:     []string{"r"},
-				Value:       "localhost:5587",
+				Value:       "localhost:10801",
 				Usage:       "rpc server address",
 				Destination: &rpcAddr,
 			},
@@ -49,7 +51,6 @@ func main() {
 			},
 		},
 		Before: func(c *cli.Context) error {
-			log.Println("go here", rpcAddr)
 			d, err := client.NewPeer2PeerDiscovery("tcp@"+rpcAddr, "")
 			if err != nil {
 				panic(err)
@@ -63,6 +64,34 @@ func main() {
 			return nil
 		},
 		Commands: []*cli.Command{
+			{
+				Name:  "test2",
+				Usage: "run send txs test",
+				Flags: []cli.Flag{
+					&cli.IntFlag{
+						Name:  "n",
+						Value: 30000,
+					},
+				},
+				Action: func(c *cli.Context) error {
+					test2(c.Int("n"))
+					return nil
+				},
+			},
+			{
+				Name:  "test1",
+				Usage: "run send txs test",
+				Flags: []cli.Flag{
+					&cli.IntFlag{
+						Name:  "n",
+						Value: 30000,
+					},
+				},
+				Action: func(c *cli.Context) error {
+					test1(c.Int("n"))
+					return nil
+				},
+			},
 			{
 				Name:  "test",
 				Usage: "run send txs test",
@@ -473,4 +502,60 @@ func runSendTx() error {
 		}
 	}
 	return nil
+}
+
+type task struct {
+	pk     crypto.PublicKey
+	m, sig []byte
+	ch     chan bool
+}
+
+func (t *task) Do() {
+	t.ch <- crypto.Verify(t.pk, t.m, t.sig)
+}
+
+func test2(count int) {
+	ts := make([]*task, count)
+	m := []byte("asdfalsdfalsdfladfalsdfalsdfladfjaldfajlsdf")
+	sk, _ := crypto.NewKey()
+	pk := sk.PublicKey()
+	ch := make(chan bool, count)
+	for i := 0; i < count; i++ {
+		ts[i] = &task{pk: pk, m: m, sig: crypto.Sign(sk, m), ch: ch}
+	}
+
+	bt := time.Now()
+	for _, t := range ts {
+		t.Do()
+	}
+	fmt.Println("verify", count, "用时", time.Since(bt))
+}
+
+func test1(count int) {
+	pool := utils.NewPool(8, 100)
+	ts := make([]*task, count)
+	m := []byte("asdfalsdfalsdfladfalsdfalsdfladfjaldfajlsdf")
+	sk, _ := crypto.NewKey()
+	pk := sk.PublicKey()
+	ch := make(chan bool, count)
+	for i := 0; i < count; i++ {
+		ts[i] = &task{pk: pk, m: m, sig: crypto.Sign(sk, m), ch: ch}
+	}
+	go pool.Run()
+
+	bt := time.Now()
+	go func() {
+		for _, t := range ts {
+			pool.Put(t)
+		}
+	}()
+	k := 0
+	for range ch {
+		k++
+		if k == count {
+			break
+		}
+	}
+	close(ch)
+	fmt.Println("verify", count, "用时", time.Since(bt))
 }

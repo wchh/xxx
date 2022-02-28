@@ -94,7 +94,7 @@ func New(conf *config.ConsensusConfig) (*Consensus, error) {
 		nbch: make(chan *types.Block, 1),
 		mch:  make(chan *types.PMsg, 256),
 
-		pool: utils.NewPool(8),
+		pool: utils.NewPool(8, 64),
 	}, nil
 }
 
@@ -244,10 +244,10 @@ func (c *Consensus) unmashalMsg(msg *types.GMsg) (*types.PMsg, error) {
 }
 
 func (c *Consensus) Run() {
-	c.pool.Run()
-	c.connectDatanode()
+	go c.pool.Run()
 	go runRpc(fmt.Sprintf(":%d", c.rpcPort), c)
 	go c.readP2pMsg()
+	c.connectDatanode()
 	c.consensusRun()
 }
 
@@ -280,7 +280,7 @@ func (c *Consensus) handleNewblock(b *types.Block) {
 	c.voteMaker(voteHeight, round)
 	c.voteCommittee(voteHeight, round)
 	c.clean(height)
-	go c.getPreBlocks(height + 2)
+	c.getPreBlocks(height + 2)
 }
 
 func (c *Consensus) consensusRun() {
@@ -344,7 +344,6 @@ func (c *Consensus) makeBlock(height int64, round int) {
 		clog.Infow("makeBlock Not enough votes")
 		return
 	}
-	clog.Infow("makeBlock", "height", height, "round", round, "myhash", utils.ByteString(hash), "nv", vn)
 
 	m := &types.Ycc_Mine{
 		Votes: vs,
@@ -374,6 +373,7 @@ func (c *Consensus) makeBlock(height int64, round int) {
 	b.Header.BlockTime = time.Now().UnixMilli()
 	b.Header.Round = int32(round)
 	b.Txs = append([]*types.Tx{tx0}, b.Txs...)
+	clog.Infow("makeBlock", "height", height, "round", round, "myhash", utils.ByteString(hash), "nv", vn, "ntx", len(b.Txs))
 
 	nb, err := c.perExecBlock(b)
 	if err != nil {
@@ -385,11 +385,12 @@ func (c *Consensus) makeBlock(height int64, round int) {
 }
 
 func (c *Consensus) handlePreBlock(b *types.Block) {
-	txs := b.Txs
-	if c.CheckSig {
-		txs, _, _ = c.txsVerifySig(txs, false)
-		b.Txs = txs
-	}
+	// txs := b.Txs
+	// if c.CheckSig {
+	// 	txs, _, _ = c.txsVerifySig(txs, false)
+	// 	b.Txs = txs
+	// }
+	clog.Infow("handlePreBlock", "height", b.Header.Height, "ntx", len(b.Txs))
 	c.preblock_mp[b.Header.Height] = b
 }
 
@@ -437,7 +438,7 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 
 	clog.Infow("preExecBlock", "height", b.Header.Height, "round", b.Header.Round, "ntx", len(b.Txs))
 	txs := b.Txs
-	if c.CheckSig {
+	if c.CheckSig && b.Header.Height > 0 {
 		txs, failedHash, _ = c.txsVerifySig(txs, false)
 	}
 
@@ -488,7 +489,7 @@ func (c *Consensus) execBlock(b *types.Block) error {
 
 	txs := b.Txs
 	if c.CheckSig && b.Header.Height > 0 {
-		txs, _, err = c.txsVerifySig(txs, true)
+		_, _, err = c.txsVerifySig(txs, true)
 		if err != nil {
 			return err
 		}
@@ -545,7 +546,7 @@ func (c *Consensus) setBlock(nb *types.NewBlock) {
 
 	c.addNewBlock(b)
 	c.node.Publish(types.NewBlockTopic, nb)
-	go c.rpcSetNewBlock(nb)
+	c.rpcSetNewBlock(nb)
 }
 
 func (c *Consensus) addNewBlock(b *types.Block) {

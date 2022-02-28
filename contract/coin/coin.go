@@ -100,23 +100,20 @@ func (c *Coin) Fee(from string, amount int64) error {
 	if balance < 0 {
 		return errors.New("not enough balance")
 	}
-	clog.Infow("coin.Fee", "from", from, "amount", amount)
+	// clog.Infow("coin.Fee", "from", from, "amount", amount)
 	buf := []byte(strconv.FormatInt(balance, 10))
 	return db.Set([]byte(keyBase+from), buf)
 }
 
 func (c *Coin) Transfer(from, to string, amount int64) error {
-	clog.Infow("coin.Transfer", "from", from, "to", to, "amount", amount)
+	// clog.Infow("coin.Transfer", "from", from, "to", to, "amount", amount)
 	db := c.GetDB()
 	from_balance, err := QueryBalance(from, db)
 	if err != nil {
 		return err
 	}
 
-	to_balance, err := QueryBalance(to, db)
-	if err != nil {
-		clog.Infow("transfer error", "err", err)
-	}
+	to_balance, _ := QueryBalance(to, db)
 
 	from_balance -= amount
 	if from_balance < 0 {

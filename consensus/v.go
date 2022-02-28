@@ -19,10 +19,19 @@ func (t *txVerifyTask) Do() {
 }
 
 func (c *Consensus) txsVerifySig(txs []*types.Tx, errReturn bool) ([]*types.Tx, [][]byte, error) {
-	return txs, nil, nil
+	// txsVerify 多个 goroutine 执行，返回的 txs 不保证顺序，但是必须保证 tx0 位于第一个
+	tx0 := txs[0]
+	if !tx0.Verify() {
+		return nil, nil, errors.New("tx0 verify failed")
+	}
+	if len(txs) == 1 {
+		return txs, nil, nil
+	}
+	txs, hashs, err := c.txsVerify(txs[1:], errReturn)
+	return append([]*types.Tx{tx0}, txs...), hashs, err
 }
 
-func (c *Consensus) txsVerifySig1(txs []*types.Tx, errReturn bool) ([]*types.Tx, [][]byte, error) {
+func (c *Consensus) txsVerify(txs []*types.Tx, errReturn bool) ([]*types.Tx, [][]byte, error) {
 	clog.Infow("txsVerifySig", "ntx", len(txs))
 	ch := make(chan *taskResult) // 任务处理结果
 	defer close(ch)
@@ -69,7 +78,6 @@ func (c *Consensus) txsVerifySig1(txs []*types.Tx, errReturn bool) ([]*types.Tx,
 		case j = <-ich:
 		default:
 		}
-		clog.Infow("go here", "k", k, "j", j)
 		if j == k {
 			break
 		}

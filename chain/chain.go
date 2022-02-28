@@ -150,15 +150,16 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 		c.db.Delete(h)
 	}
 
+	clog.Infow("handleNewBlock", "height", nb.Header.Height)
 	c.mu.Lock()
 	c.curHeight = nb.Header.Height
 	delete(c.preblock_mp, c.curHeight)
-	npb, ok := c.preblock_mp[c.curHeight+int64(c.PreBlocks)]
+	npb, ok := c.preblock_mp[c.curHeight+int64(c.PreBlocks)-1]
 	c.mu.Unlock()
-	if ok {
+	if ok && npb != nil {
 		npb.merkel()
+		clog.Infow("handleNewBlock", "height", nb.Header.Height, "npb height", npb.b.Header.Height, "npb ntx", len(npb.b.Txs))
 	}
-	clog.Infow("handleNewBlock", "height", nb.Header.Height)
 	return nil
 }
 

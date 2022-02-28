@@ -64,18 +64,19 @@ func (c *Consensus) getRpcClient(addr, svc string) (client.XClient, error) {
 }
 
 func (c *Consensus) getPreBlocks(height int64) error {
-	br, err := c.rpcGetBlocks(height, 1, "GetPreBlocks")
-	if err != nil {
-		clog.Infow("getPreBlocks err", "err", err, "height", height)
-		return err
-	}
-	if len(br.Bs) == 0 {
-		clog.Infow("getPreBlocks return 0 blocks", "height", height)
-		return nil
-	}
-	for _, b := range br.Bs {
-		c.mch <- &types.PMsg{Msg: b, Topic: types.PreBlockTopic}
-	}
+	c.pool.Put(&getPreBlockTask{height: height, c: c})
+	// br, err := c.rpcGetBlocks(height, 1, "GetPreBlocks")
+	// if err != nil {
+	// 	clog.Infow("getPreBlocks err", "err", err, "height", height)
+	// 	return err
+	// }
+	// if len(br.Bs) == 0 {
+	// 	clog.Infow("getPreBlocks return 0 blocks", "height", height)
+	// 	return nil
+	// }
+	// for _, b := range br.Bs {
+	// 	c.mch <- &types.PMsg{Msg: b, Topic: types.PreBlockTopic}
+	// }
 	return nil
 }
 
@@ -121,4 +122,26 @@ func (c *Consensus) rpcGetBlocks(start, count int64, m string) (*types.BlocksRep
 		return nil, err
 	}
 	return &br, nil
+}
+
+type getPreBlockTask struct {
+	height int64
+	c      *Consensus
+}
+
+func (t *getPreBlockTask) Do() {
+	c := t.c
+	height := t.height
+	br, err := c.rpcGetBlocks(height, 1, "GetPreBlocks")
+	if err != nil {
+		clog.Infow("getPreBlocks err", "err", err, "height", height)
+		return
+	}
+	if len(br.Bs) == 0 {
+		clog.Infow("getPreBlocks return 0 blocks", "height", height)
+		return
+	}
+	for _, b := range br.Bs {
+		c.mch <- &types.PMsg{Msg: b, Topic: types.PreBlockTopic}
+	}
 }

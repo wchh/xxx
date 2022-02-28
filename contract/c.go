@@ -75,7 +75,7 @@ func (cl *Container) processFee(from string) error {
 }
 
 func (cl *Container) ExecTx(tx *types.Tx) error {
-	clog.Infow("container.ExecTx", "contract", tx.Contract, "op", tx.Op, "to", tx.To)
+	// clog.Infow("container.ExecTx", "contract", tx.Contract, "op", tx.Op, "to", tx.To)
 	from := crypto.PubkeyToAddr(tx.Sig.PublicKey)
 	if cl.height != 0 {
 		err := cl.processFee(from)
