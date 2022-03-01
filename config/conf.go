@@ -7,11 +7,13 @@ type ConsensusConfig struct {
 	LogPath  string
 	LogLevel string
 
-	DataNode   string
-	ServerPort int
-	RpcPort    int
+	BootPeers        []string
+	DataNodeRpc      string
+	DataNodePID      string
+	ServerPort       int
+	RpcPort          int
+	UseRpcToDataNode bool
 
-	BootPeers   []string
 	PrivateSeed string
 	GenesisSeed string
 	FundAddress string
@@ -42,6 +44,7 @@ type DataNodeConfig struct {
 	PrivateSeed string
 
 	RpcPort     int
+	ServerPort  int
 	PreBlocks   int // 提前
 	MaxBlockTxs int
 }
@@ -54,7 +57,8 @@ var DefaultConsensusConfig = &ConsensusConfig{
 	LogLevel:             "debug",
 	RpcPort:              10801,
 	ServerPort:           10901,
-	DataNode:             "localhost:10801",
+	DataNodeRpc:          "localhost:10801",
+	DataNodePID:          "/ip4/192.168.0.143/tcp/10901/p2p/12D3KooWMprfHvNnmXqLZtUfEdKS9FZocZNz8ir7Vax43nb4af1M",
 	BootPeers:            []string{},
 	FundAddress:          "3ftLmbf3MEPXTJYmd4HsRtKqUgy",
 	PrivateSeed:          "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05",
@@ -81,6 +85,7 @@ var DefaultDataNodeConfig = &DataNodeConfig{
 	LogLevel:    "debug",
 	PrivateSeed: "0080242bfc85666aa8ce21846fa78d24898509fa8a60dd47ae80556798739617",
 	RpcPort:     10801,
+	ServerPort:  10901,
 	PreBlocks:   4,
 }
 

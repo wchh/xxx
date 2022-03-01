@@ -64,49 +64,48 @@ func (c *Consensus) getRpcClient(addr, svc string) (client.XClient, error) {
 }
 
 func (c *Consensus) getPreBlocks(height int64) error {
-	c.pool.Put(&getPreBlockTask{height: height, c: c})
-	// br, err := c.rpcGetBlocks(height, 1, "GetPreBlocks")
-	// if err != nil {
-	// 	clog.Infow("getPreBlocks err", "err", err, "height", height)
-	// 	return err
-	// }
-	// if len(br.Bs) == 0 {
-	// 	clog.Infow("getPreBlocks return 0 blocks", "height", height)
-	// 	return nil
-	// }
-	// for _, b := range br.Bs {
-	// 	c.mch <- &types.PMsg{Msg: b, Topic: types.PreBlockTopic}
-	// }
+	if c.UseRpcToDataNode {
+		c.pool.Put(&getPreBlockTask{height: height, c: c})
+	} else {
+		c.p2pGetBlocks(height, 1, types.GetPreBlockTopic)
+	}
 	return nil
 }
 
 func (c *Consensus) connectDatanode() error {
-	clt, err := c.getRpcClient(c.DataNode, "Chain")
+	clt, err := c.getRpcClient(c.DataNodeRpc, "Chain")
 	if err != nil {
 		clog.Error("connectDatanode error", "err", err)
 		return err
 	}
-	clog.Infow("connect datanode", "datanode", c.DataNode)
+	clog.Infow("connect datanode", "datanode", c.DataNodeRpc)
 	c.rpcClt = clt
 	return nil
 }
 
 func (c *Consensus) getBlocks(start, count int64) error {
-	br, err := c.rpcGetBlocks(start, count, "GetBlocks")
-	if err != nil {
-		clog.Infow("getPreBlocks err", "err", err, "height", start)
-		return err
+	if c.UseRpcToDataNode {
+		c.pool.Put(&getBlocksTask{start: start, count: int(count), c: c})
+	} else {
+		c.p2pGetBlocks(start, count, types.GetBlocksTopic)
 	}
-	if len(br.Bs) == 0 {
-		clog.Infow("getPreBlocks return 0 blocks")
-		return nil
-	}
-	c.mch <- &types.PMsg{Msg: br, Topic: types.BlockTopic}
 	return nil
 }
 
-func (c *Consensus) rpcSetNewBlock(nb *types.NewBlock) error {
-	return c.rpcClt.Call(context.Background(), "SetNewBlock", nb, nil)
+func (c *Consensus) setNewBlock(nb *types.NewBlock) error {
+	if c.UseRpcToDataNode {
+		return c.rpcClt.Call(context.Background(), "SetNewBlock", nb, nil)
+	} else {
+		return c.node.Send(c.DataNodePID, types.SetNewBlockTopic, nb)
+	}
+}
+
+func (c *Consensus) p2pGetBlocks(start, count int64, topic string) error {
+	arg := &types.GetBlocks{
+		Start: start,
+		Count: count,
+	}
+	return c.node.Send(c.DataNodePID, topic, arg)
 }
 
 func (c *Consensus) rpcGetBlocks(start, count int64, m string) (*types.BlocksReply, error) {
@@ -122,6 +121,26 @@ func (c *Consensus) rpcGetBlocks(start, count int64, m string) (*types.BlocksRep
 		return nil, err
 	}
 	return &br, nil
+}
+
+type getBlocksTask struct {
+	start int64
+	count int
+	c     *Consensus
+}
+
+func (t *getBlocksTask) Do() {
+	c := t.c
+	br, err := c.rpcGetBlocks(t.start, int64(t.count), "GetPreBlocks")
+	if err != nil {
+		clog.Infow("getPreBlocks err", "err", err, "height", t.start)
+		return
+	}
+	if len(br.Bs) == 0 {
+		clog.Infow("getPreBlocks return 0 blocks", "height", t.start)
+		return
+	}
+	c.mch <- &types.PMsg{Msg: br, Topic: types.BlocksTopic}
 }
 
 type getPreBlockTask struct {

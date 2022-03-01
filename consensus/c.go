@@ -57,23 +57,45 @@ func initContracts(conf *config.ConsensusConfig) *contract.Container {
 }
 
 func New(conf *config.ConsensusConfig) (*Consensus, error) {
+	// create levalDB
 	ldb, err := db.NewLDB(conf.DataPath)
 	if err != nil {
 		return nil, err
 	}
+
+	// votePrice
 	if conf.VotePrice == 0 {
 		conf.VotePrice = 1000
 	}
+
+	// get private key for sign and p2p
 	priv, err := crypto.PrivateKeyFromString(conf.PrivateSeed)
 	if err != nil {
 		return nil, err
 	}
-	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort, Topics: types.ConsensusTopcs}
+
+	// create p2p node
+	p2pConf := &p2p.Conf{
+		Priv:      priv,
+		Port:      conf.ServerPort,
+		Topics:    types.ConsensusTopcs,
+		BootPeers: append(conf.BootPeers, conf.DataNodePID),
+	}
 	node, err := p2p.NewNode(p2pConf)
 	if err != nil {
 		return nil, err
 	}
+
+	// get datanode pid
+	tinfo, err := p2p.ParseP2PAddress(conf.DataNodePID)
+	if err != nil {
+		return nil, err
+	}
+	conf.DataNodePID = string(tinfo.ID)
+
+	// init contracts: ycc, coin
 	cc := initContracts(conf)
+
 	return &Consensus{
 		chid:            conf.ChainID,
 		version:         conf.Version,
@@ -166,7 +188,7 @@ func (c *Consensus) genesisBlock() (*types.Block, error) {
 
 func (c *Consensus) handlePMsg(msg *types.PMsg) {
 	switch msg.Topic {
-	case types.BlockTopic:
+	case types.BlocksTopic:
 		c.handleBlocks(msg.Msg.(*types.BlocksReply))
 	case types.PreBlockTopic:
 		c.handlePreBlock(msg.Msg.(*types.Block))
@@ -197,6 +219,13 @@ func (c *Consensus) readP2pMsg() {
 func (c *Consensus) unmashalMsg(msg *types.GMsg) (*types.PMsg, error) {
 	var umsg types.Message
 	switch msg.Topic {
+	case types.BlocksTopic:
+		var m types.BlocksReply
+		err := types.Unmarshal(msg.Data, &m)
+		if err != nil {
+			panic(err)
+		}
+		umsg = &m
 	case types.PreBlockTopic:
 		var m types.PreBlock
 		err := types.Unmarshal(msg.Data, &m)
@@ -385,11 +414,6 @@ func (c *Consensus) makeBlock(height int64, round int) {
 }
 
 func (c *Consensus) handlePreBlock(b *types.Block) {
-	// txs := b.Txs
-	// if c.CheckSig {
-	// 	txs, _, _ = c.txsVerifySig(txs, false)
-	// 	b.Txs = txs
-	// }
 	clog.Infow("handlePreBlock", "height", b.Header.Height, "ntx", len(b.Txs))
 	c.preblock_mp[b.Header.Height] = b
 }
@@ -546,7 +570,7 @@ func (c *Consensus) setBlock(nb *types.NewBlock) {
 
 	c.addNewBlock(b)
 	c.node.Publish(types.NewBlockTopic, nb)
-	c.rpcSetNewBlock(nb)
+	c.setNewBlock(nb)
 }
 
 func (c *Consensus) addNewBlock(b *types.Block) {

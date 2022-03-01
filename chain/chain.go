@@ -5,8 +5,10 @@ import (
 	"sync"
 
 	"xxx/config"
+	"xxx/crypto"
 	"xxx/db"
 	"xxx/log"
+	"xxx/p2p"
 	"xxx/types"
 )
 
@@ -54,12 +56,14 @@ func (pb *preBlock) handleNewBlock(nb *types.NewBlock) *types.StoreBlock {
 
 type Chain struct {
 	*config.DataNodeConfig
+	node *p2p.Node
+	db   db.DB
 
-	mu        sync.Mutex
-	curHeight int64
-	// n           *p2p.Node
-	db          db.DB
+	mu          sync.Mutex
+	curHeight   int64
 	preblock_mp map[int64]*preBlock
+
+	mch chan *types.PMsg
 }
 
 func New(conf *config.DataNodeConfig) (*Chain, error) {
@@ -67,54 +71,69 @@ func New(conf *config.DataNodeConfig) (*Chain, error) {
 	if err != nil {
 		return nil, err
 	}
-	// priv, err := crypto.PrivateKeyFromString(conf.PrivateSeed)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// p2pConf := &p2p.Conf{Priv: priv, Port: conf.RpcPort, Topics: types.ChainTopics}
-	// node, err := p2p.NewNode(p2pConf)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	priv, err := crypto.PrivateKeyFromString(conf.PrivateSeed)
+	if err != nil {
+		return nil, err
+	}
+	p2pConf := &p2p.Conf{Priv: priv, Port: conf.RpcPort, Topics: types.ChainTopics}
+	node, err := p2p.NewNode(p2pConf)
+	if err != nil {
+		return nil, err
+	}
 	return &Chain{
 		DataNodeConfig: conf,
 		db:             ldb,
-		// n:              node,
-		preblock_mp: make(map[int64]*preBlock),
+		node:           node,
+		preblock_mp:    make(map[int64]*preBlock),
+		mch:            make(chan *types.PMsg, 64),
 	}, nil
 }
 
-// func (c *Chain) handleP2pMsg(m *p2p.Msg) {
-// 	switch m.Topic {
-// case p2p.NewBlockTopic:
-// 	var b types.NewBlock
-// 	err := types.Unmarshal(m.Data, &b)
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// 	c.handleNewBlock(&b)
-// case p2p.GetPreBlocksTopic:
-// 	var b types.GetBlocks
-// 	err := types.Unmarshal(m.Data, &b)
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// 	c.handleGetPreBlocks(m.PID, &b)
-// case p2p.GetBlocksTopic:
-// 	var b types.GetBlocks
-// 	err := types.Unmarshal(m.Data, &b)
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// 	c.handleGetBlocks(m.PID, &b)
-// }
-// }
+func (c *Chain) unmashalMsg(msg *types.GMsg) (*types.PMsg, error) {
+	var umsg types.Message
+	switch msg.Topic {
+	case types.GetPreBlockTopic, types.GetBlocksTopic:
+		var m types.GetBlocks
+		err := types.Unmarshal(msg.Data, &m)
+		if err != nil {
+			return nil, err
+		}
+		umsg = &m
+	case types.SetNewBlockTopic:
+		var m types.NewBlock
+		err := types.Unmarshal(msg.Data, &m)
+		if err != nil {
+			return nil, err
+		}
+		umsg = &m
+	}
+	return &types.PMsg{Msg: umsg, Topic: msg.Topic, PID: msg.PID}, nil
+}
+
+func (c *Chain) handlePMsg(m *types.PMsg) {
+	switch m.Topic {
+	case types.SetNewBlockTopic:
+		b := m.Msg.(*types.NewBlock)
+		c.handleNewBlock(b)
+	case types.GetPreBlockTopic:
+		arg := m.Msg.(*types.GetBlocks)
+		c.handleGetPreBlocks(m.PID, arg)
+	case types.GetBlocksTopic:
+		arg := m.Msg.(*types.GetBlocks)
+		c.handleGetBlocks(m.PID, arg)
+	}
+}
 
 func (c *Chain) Run() {
 	runRpc(fmt.Sprintf(":%d", c.RpcPort), c)
-	// for m := range c.n.C {
-	// 	c.handleP2pMsg(m)
-	// }
+	for m := range c.node.C {
+		pm, err := c.unmashalMsg(m)
+		if err != nil {
+			clog.Errorw("unmarshalMsg error", "err", err)
+			continue
+		}
+		c.handlePMsg(pm)
+	}
 }
 
 func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
@@ -158,7 +177,7 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 	c.mu.Unlock()
 	if ok && npb != nil {
 		npb.merkel()
-		clog.Infow("handleNewBlock", "height", nb.Header.Height, "npb height", npb.b.Header.Height, "npb ntx", len(npb.b.Txs))
+		clog.Infow("handleNewBlock", "height", nb.Header.Height, "npb height", npb.b.Header.Height, "npb ntx", npb.txsLen())
 	}
 	return nil
 }
@@ -205,7 +224,6 @@ func (c *Chain) handleTxs(txs []*types.Tx) {
 	}
 	c.mu.Unlock()
 	pb.setTxs(txs)
-	// clog.Infow("handleTxs", "ntx", pb.txsLen(), "height", height)
 }
 
 func (c *Chain) getBlockByHeight(height int64) (*types.Block, error) {
@@ -252,15 +270,15 @@ func (c *Chain) getTx(h []byte) (*types.Tx, error) {
 	return tx, nil
 }
 
-// func (c *Chain) handleGetPreBlocks(pid string, m *types.GetBlocks) {
-// 	br, _ := c.getPreBlocks(m)
-// 	c.n.Send(pid, p2p.PreBlocksReplyTopic, br)
-// }
+func (c *Chain) handleGetPreBlocks(pid string, m *types.GetBlocks) {
+	br, _ := c.getPreBlocks(m)
+	c.node.Send(pid, types.PreBlockTopic, br)
+}
 
-// func (c *Chain) handleGetBlocks(pid string, m *types.GetBlocks) {
-// 	br, _ := c.getBlocks(m)
-// 	c.n.Send(pid, p2p.BlocksReplyTopic, br)
-// }
+func (c *Chain) handleGetBlocks(pid string, m *types.GetBlocks) {
+	br, _ := c.getBlocks(m)
+	c.node.Send(pid, types.BlocksTopic, br)
+}
 
 func (c *Chain) getPreBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 	c.mu.Lock()

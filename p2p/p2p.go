@@ -99,27 +99,30 @@ func NewNode(conf *Conf) (*Node, error) {
 	return g, nil
 }
 
+func ParseP2PAddress(addr string) (*peer.AddrInfo, error) {
+	targetAddr, err := multiaddr.NewMultiaddr(addr)
+	if err != nil {
+		plog.Warnw("bootstrap error", "err", err)
+		return nil, err
+	}
+
+	plog.Infow("parse p2p addr", "peer", targetAddr.String())
+	return peer.AddrInfoFromP2pAddr(targetAddr)
+}
+
 func (g *Node) bootstrap(addrs ...string) error {
 	for _, addr := range addrs {
-		targetAddr, err := multiaddr.NewMultiaddr(addr)
+		targetInfo, err := ParseP2PAddress(addr)
 		if err != nil {
-			// plog.Warn("bootstrap error", "err", err)
-			return err
+			plog.Errorw("parse p2p addr error", "err", err)
+			continue
 		}
-
-		targetInfo, err := peer.AddrInfoFromP2pAddr(targetAddr)
-		if err != nil {
-			plog.Errorw("bootstrap error", "err", err)
-			return err
-		}
-
 		g.Peerstore().AddAddrs(targetInfo.ID, targetInfo.Addrs, peerstore.AddressTTL)
 		err = g.Connect(context.Background(), *targetInfo)
 		if err != nil {
 			plog.Errorw("bootstrap error", "err", err)
 			continue
 		}
-		plog.Infow("connect boot peer", "bootpeer", targetAddr.String())
 		s, err := g.NewStream(context.Background(), targetInfo.ID, protocol.ID(remoteAddrTopic))
 		if err != nil {
 			plog.Errorw("bootstrap error", "err", err)

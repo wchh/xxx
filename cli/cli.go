@@ -532,7 +532,7 @@ func test2(count int) {
 }
 
 func test1(count int) {
-	pool := utils.NewPool(8, 100)
+	pool := utils.NewPool(8, 16)
 	ts := make([]*task, count)
 	m := []byte("asdfalsdfalsdfladfalsdfalsdfladfjaldfajlsdf")
 	sk, _ := crypto.NewKey()

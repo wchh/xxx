@@ -215,9 +215,13 @@ type GMsg struct {
 }
 
 const (
-	BlockTopic    = "block"
+	BlocksTopic   = "blocks"
 	PreBlockTopic = "preblock"
 	NewBlockTopic = "newblock"
+
+	GetBlocksTopic   = "getBlocks"
+	GetPreBlockTopic = "getPreBlock"
+	SetNewBlockTopic = "setNewBlock"
 
 	MakerSortTopic      = "makersort"
 	CommitteeSortTopic  = "committeesort"
@@ -230,7 +234,7 @@ const (
 )
 
 var ChainTopics = []string{
-	BlockTopic,
+	BlocksTopic,
 	PreBlockTopic,
 	NewBlockTopic,
 	MakerSortTopic,
@@ -239,6 +243,9 @@ var ChainTopics = []string{
 	MakerVoteTopic,
 	CommitteeVoteTopic,
 	PeerInfoTopic,
+	GetBlocksTopic,
+	GetPreBlockTopic,
+	SetNewBlockTopic,
 }
 
 var ConsensusTopcs = ChainTopics
