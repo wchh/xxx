@@ -63,15 +63,6 @@ func (c *Consensus) getRpcClient(addr, svc string) (client.XClient, error) {
 	return client.NewXClient(svc, client.Failtry, client.RandomSelect, d, opt), nil
 }
 
-func (c *Consensus) getPreBlocks(height int64) error {
-	if c.UseRpcToDataNode {
-		c.pool.Put(&getPreBlockTask{height: height, c: c})
-	} else {
-		c.p2pGetBlocks(height, 1, types.GetPreBlockTopic)
-	}
-	return nil
-}
-
 func (c *Consensus) connectDatanode() error {
 	clt, err := c.getRpcClient(c.DataNodeRpc, "Chain")
 	if err != nil {
@@ -83,30 +74,7 @@ func (c *Consensus) connectDatanode() error {
 	return nil
 }
 
-func (c *Consensus) getBlocks(start, count int64) error {
-	if c.UseRpcToDataNode {
-		c.pool.Put(&getBlocksTask{start: start, count: int(count), c: c})
-	} else {
-		c.p2pGetBlocks(start, count, types.GetBlocksTopic)
-	}
-	return nil
-}
 
-func (c *Consensus) setNewBlock(nb *types.NewBlock) error {
-	if c.UseRpcToDataNode {
-		return c.rpcClt.Call(context.Background(), "SetNewBlock", nb, nil)
-	} else {
-		return c.node.Send(c.DataNodePID, types.SetNewBlockTopic, nb)
-	}
-}
-
-func (c *Consensus) p2pGetBlocks(start, count int64, topic string) error {
-	arg := &types.GetBlocks{
-		Start: start,
-		Count: count,
-	}
-	return c.node.Send(c.DataNodePID, topic, arg)
-}
 
 func (c *Consensus) rpcGetBlocks(start, count int64, m string) (*types.BlocksReply, error) {
 	clt := c.rpcClt

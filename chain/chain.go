@@ -62,8 +62,6 @@ type Chain struct {
 	mu          sync.Mutex
 	curHeight   int64
 	preblock_mp map[int64]*preBlock
-
-	mch chan *types.PMsg
 }
 
 func New(conf *config.DataNodeConfig) (*Chain, error) {
@@ -85,7 +83,6 @@ func New(conf *config.DataNodeConfig) (*Chain, error) {
 		db:             ldb,
 		node:           node,
 		preblock_mp:    make(map[int64]*preBlock),
-		mch:            make(chan *types.PMsg, 64),
 	}, nil
 }
 
@@ -117,7 +114,7 @@ func (c *Chain) handlePMsg(m *types.PMsg) {
 		c.handleNewBlock(b)
 	case types.GetPreBlockTopic:
 		arg := m.Msg.(*types.GetBlocks)
-		c.handleGetPreBlocks(m.PID, arg)
+		c.handleGetPreBlock(m.PID, arg)
 	case types.GetBlocksTopic:
 		arg := m.Msg.(*types.GetBlocks)
 		c.handleGetBlocks(m.PID, arg)
@@ -125,7 +122,7 @@ func (c *Chain) handlePMsg(m *types.PMsg) {
 }
 
 func (c *Chain) Run() {
-	runRpc(fmt.Sprintf(":%d", c.RpcPort), c)
+	go runRpc(fmt.Sprintf(":%d", c.RpcPort), c)
 	for m := range c.node.C {
 		pm, err := c.unmashalMsg(m)
 		if err != nil {
@@ -270,7 +267,7 @@ func (c *Chain) getTx(h []byte) (*types.Tx, error) {
 	return tx, nil
 }
 
-func (c *Chain) handleGetPreBlocks(pid string, m *types.GetBlocks) {
+func (c *Chain) handleGetPreBlock(pid string, m *types.GetBlocks) {
 	br, _ := c.getPreBlocks(m)
 	c.node.Send(pid, types.PreBlockTopic, br)
 }

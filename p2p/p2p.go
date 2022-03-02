@@ -171,16 +171,21 @@ func (g *Node) handleIncoming(s network.Stream) {
 		m := new(types.Msg)
 		err := r.ReadMsg(m)
 		if err != nil {
+			plog.Errorw("recv remote error", "err", err)
 			if err != io.EOF {
-				plog.Errorw("recv remote error", "err", err)
 				s.Reset()
 				return
 			}
 			s.Close()
 			return
 		}
-		plog.Debugw("recv from remote peer", "protocolID", s.Protocol(), "remote peer", s.Conn().RemotePeer())
-		g.C <- &types.GMsg{PID: s.ID(), Topic: m.Topic, Data: m.Data}
+		rid := s.Conn().RemotePeer()
+		plog.Debugw("recv from remote peer", "protocolID", s.Protocol(), "remote peer", rid, "sid", s.ID(), "cid", s.Conn().ID())
+		gm := &types.GMsg{PID: string(rid), Topic: m.Topic, Data: m.Data}
+		select {
+		case g.C <- gm:
+		default:
+		}
 	}
 }
 
@@ -204,12 +209,12 @@ func (g *Node) handleOutgoing() {
 		m := <-g.smch
 		s, err := g.newStream(m.PID)
 		if err != nil {
-			plog.Errorw("new stream error", "err", err)
+			plog.Errorw("new stream error", "err", err, "pid", m.PID)
 			continue
 		}
 		data, err := types.Marshal(m.Msg)
 		if err != nil {
-			plog.Errorw("new stream error", "err", err)
+			plog.Errorw("new stream error", "err", err, "topic", m.Topic)
 			continue
 		}
 
@@ -257,6 +262,7 @@ func (g *Node) run(ps *pubsub.PubSub, forwardPeers bool) {
 }
 
 func (g *Node) runBootstrap(ps *pubsub.PubSub) {
+	g.bootstrap(g.BootPeers...)
 	for range time.NewTicker(time.Second * 60).C {
 		np := ps.ListPeers(types.PeerInfoTopic)
 		plog.Infow("pos33 peers ", "len", len(np), "peers", np)

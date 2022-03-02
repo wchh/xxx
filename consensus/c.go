@@ -1,6 +1,8 @@
 package consensus
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -203,6 +205,7 @@ func (c *Consensus) handlePMsg(msg *types.PMsg) {
 	case types.ConsensusBlockTopic:
 		c.handleConsensusBlock(msg.Msg.(*types.NewBlock))
 	}
+	clog.Infow("handlePMSG", "topic", msg.Topic, "pid", msg.PID)
 }
 
 func (c *Consensus) readP2pMsg() {
@@ -227,12 +230,15 @@ func (c *Consensus) unmashalMsg(msg *types.GMsg) (*types.PMsg, error) {
 		}
 		umsg = &m
 	case types.PreBlockTopic:
-		var m types.PreBlock
+		var m types.BlocksReply
 		err := types.Unmarshal(msg.Data, &m)
 		if err != nil {
 			panic(err)
 		}
-		umsg = &m
+		if len(m.Bs) == 0 {
+			return nil, errors.New("no preblocks")
+		}
+		umsg = m.Bs[0]
 	case types.MakerSortTopic:
 		var m types.Sortition
 		err := types.Unmarshal(msg.Data, &m)
@@ -839,6 +845,40 @@ func (c *Consensus) firstSort(zb *types.Block) {
 			c.voteMaker(i, round)
 			c.voteCommittee(i, round)
 		}
+	}
+}
+
+func (c *Consensus) getPreBlocks(height int64) error {
+	if c.UseRpcToDataNode {
+		c.pool.Put(&getPreBlockTask{height: height, c: c})
+	} else {
+		c.p2pGetBlocks(height, 1, types.GetPreBlockTopic)
+	}
+	return nil
+}
+
+func (c *Consensus) getBlocks(start, count int64) error {
+	if c.UseRpcToDataNode {
+		c.pool.Put(&getBlocksTask{start: start, count: int(count), c: c})
+	} else {
+		c.p2pGetBlocks(start, count, types.GetBlocksTopic)
+	}
+	return nil
+}
+
+func (c *Consensus) p2pGetBlocks(start, count int64, topic string) error {
+	arg := &types.GetBlocks{
+		Start: start,
+		Count: count,
+	}
+	return c.node.Send(c.DataNodePID, topic, arg)
+}
+
+func (c *Consensus) setNewBlock(nb *types.NewBlock) error {
+	if c.UseRpcToDataNode {
+		return c.rpcClt.Call(context.Background(), "SetNewBlock", nb, nil)
+	} else {
+		return c.node.Send(c.DataNodePID, types.SetNewBlockTopic, nb)
 	}
 }
 

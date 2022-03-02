@@ -84,8 +84,8 @@ var DefaultDataNodeConfig = &DataNodeConfig{
 	LogPath:     "./logs/",
 	LogLevel:    "debug",
 	PrivateSeed: "0080242bfc85666aa8ce21846fa78d24898509fa8a60dd47ae80556798739617",
-	RpcPort:     10801,
-	ServerPort:  10901,
+	RpcPort:     10601,
+	ServerPort:  10701,
 	PreBlocks:   4,
 }
 
