@@ -1,16 +1,22 @@
 package db
 
+import "sync"
+
 // memery db and imp Transaction interface
 type MDB struct {
 	db DB
+	mu sync.RWMutex
 	mp map[string][]byte
 }
 
 func NewMDB(db DB) *MDB {
-	return &MDB{db, make(map[string][]byte)}
+	return &MDB{db:db, mp:make(map[string][]byte)}
 }
 
 func (m *MDB) Get(key []byte) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	val, ok := m.mp[string(key)]
 	if !ok {
 		v, err := m.db.Get(key)
@@ -23,11 +29,16 @@ func (m *MDB) Get(key []byte) ([]byte, error) {
 }
 
 func (m *MDB) Set(key, val []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.mp[string(key)] = val
 	return nil
 }
 
 func (m *MDB) Delete(key []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.mp, string(key))
 	return nil
 }
@@ -37,6 +48,9 @@ func (m *MDB) Write(b Batch) error {
 }
 
 func (m *MDB) Commit() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	var b Batch
 	useBatch := len(m.mp) > 100
 	if useBatch {

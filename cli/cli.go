@@ -66,7 +66,7 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name:  "test2",
-				Usage: "run send txs test",
+				Usage: "signarute verify test2",
 				Flags: []cli.Flag{
 					&cli.IntFlag{
 						Name:  "n",
@@ -80,7 +80,7 @@ func main() {
 			},
 			{
 				Name:  "test1",
-				Usage: "run send txs test",
+				Usage: "signature verify test1",
 				Flags: []cli.Flag{
 					&cli.IntFlag{
 						Name:  "n",
@@ -96,7 +96,7 @@ func main() {
 				Name:  "test",
 				Usage: "run send txs test",
 				Action: func(c *cli.Context) error {
-					runSendTx()
+					runSendTx(30000)
 					return nil
 				},
 			},
@@ -469,7 +469,7 @@ func randAddress() string {
 	return crypto.NewAddress(crypto.Hash(s))
 }
 
-func runSendTx() error {
+func runSendTx(count int) error {
 	skSeed := "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05"
 	sk, err := crypto.PrivateKeyFromString(skSeed)
 	if err != nil {
@@ -492,13 +492,24 @@ func runSendTx() error {
 	const N = 256
 	txs := make([]*types.Tx, N)
 	i := 0
+	bt := time.Now()
+	sent := 0
 	for tx := range ch {
 		txs[i] = tx
 		i++
 		if i == N {
-			i = 0
 			xclient.Call(context.Background(), "SendTxs", txs, &struct{}{})
-			// time.Sleep(time.Second)
+			i = 0
+			sent += N
+			if sent >= count {
+				d := time.Since(bt)
+				if d < time.Second {
+					time.Sleep(time.Second - d)
+				}
+				println("send txs:", sent, "duration:", d)
+				sent = 0
+				bt = time.Now()
+			}
 		}
 	}
 	return nil

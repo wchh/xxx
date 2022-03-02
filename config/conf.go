@@ -13,6 +13,8 @@ type ConsensusConfig struct {
 	ServerPort       int
 	RpcPort          int
 	UseRpcToDataNode bool
+	CompressRpc      bool
+	CompressP2p      bool
 
 	PrivateSeed string
 	GenesisSeed string
@@ -47,6 +49,8 @@ type DataNodeConfig struct {
 	ServerPort  int
 	PreBlocks   int // 提前
 	MaxBlockTxs int
+	CompressRpc bool
+	CompressP2p bool
 }
 
 var DefaultConsensusConfig = &ConsensusConfig{

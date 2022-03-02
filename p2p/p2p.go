@@ -12,6 +12,7 @@ import (
 	ccrypto "xxx/crypto"
 	"xxx/log"
 	"xxx/types"
+	"xxx/utils"
 
 	"github.com/libp2p/go-libp2p"
 	autonat "github.com/libp2p/go-libp2p-autonat"
@@ -52,6 +53,7 @@ type Conf struct {
 	ForwardPeers bool
 	Topics       []string
 	BootPeers    []string
+	Compress     bool
 }
 
 func NewNode(conf *Conf) (*Node, error) {
@@ -79,7 +81,7 @@ func NewNode(conf *Conf) (*Node, error) {
 		tmap: make(map[string]*pubsub.Topic),
 		smap: make(map[string]stream),
 		C:    make(chan *types.GMsg, 64),
-		smch: make(chan *types.PMsg, 1),
+		smch: make(chan *types.PMsg, 16),
 	}
 	g.setHandler()
 	topics := conf.Topics
@@ -163,7 +165,7 @@ func (g *Node) handlePeers(data []byte) {
 	}
 }
 
-const defaultMaxSize = 1024 * 1024
+const defaultMaxSize = 1024 * 1024 * 1024 // 1G
 
 func (g *Node) handleIncoming(s network.Stream) {
 	r := pio.NewDelimitedReader(s, defaultMaxSize)
@@ -179,8 +181,11 @@ func (g *Node) handleIncoming(s network.Stream) {
 			s.Close()
 			return
 		}
+		if g.Compress {
+			m.Data = utils.Uncompress(m.Data)
+		}
 		rid := s.Conn().RemotePeer()
-		plog.Debugw("recv from remote peer", "protocolID", s.Protocol(), "remote peer", rid, "sid", s.ID(), "cid", s.Conn().ID())
+		plog.Debugw("recv from remote peer", "protocolID", s.Protocol(), "remote peer", rid, "topic", m.Topic)
 		gm := &types.GMsg{PID: string(rid), Topic: m.Topic, Data: m.Data}
 		select {
 		case g.C <- gm:
@@ -216,6 +221,10 @@ func (g *Node) handleOutgoing() {
 		if err != nil {
 			plog.Errorw("new stream error", "err", err, "topic", m.Topic)
 			continue
+		}
+
+		if g.Compress {
+			data = utils.Compress(data)
 		}
 
 		err = s.WriteMsg(&types.Msg{Topic: m.Topic, Data: data})

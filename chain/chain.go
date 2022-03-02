@@ -10,6 +10,7 @@ import (
 	"xxx/log"
 	"xxx/p2p"
 	"xxx/types"
+	"xxx/utils"
 )
 
 var clog = log.New("chain")
@@ -62,6 +63,7 @@ type Chain struct {
 	mu          sync.Mutex
 	curHeight   int64
 	preblock_mp map[int64]*preBlock
+	pool        *utils.GoPool
 }
 
 func New(conf *config.DataNodeConfig) (*Chain, error) {
@@ -73,7 +75,7 @@ func New(conf *config.DataNodeConfig) (*Chain, error) {
 	if err != nil {
 		return nil, err
 	}
-	p2pConf := &p2p.Conf{Priv: priv, Port: conf.RpcPort, Topics: types.ChainTopics}
+	p2pConf := &p2p.Conf{Priv: priv, Port: conf.ServerPort, Topics: types.ChainTopics, Compress: conf.CompressP2p}
 	node, err := p2p.NewNode(p2pConf)
 	if err != nil {
 		return nil, err
@@ -83,6 +85,7 @@ func New(conf *config.DataNodeConfig) (*Chain, error) {
 		db:             ldb,
 		node:           node,
 		preblock_mp:    make(map[int64]*preBlock),
+		pool:           utils.NewPool(8, 16),
 	}, nil
 }
 
@@ -107,6 +110,15 @@ func (c *Chain) unmashalMsg(msg *types.GMsg) (*types.PMsg, error) {
 	return &types.PMsg{Msg: umsg, Topic: msg.Topic, PID: msg.PID}, nil
 }
 
+type pmsgTask struct {
+	m *types.PMsg
+	c *Chain
+}
+
+func (t *pmsgTask) Do() {
+	t.c.handlePMsg(t.m)
+}
+
 func (c *Chain) handlePMsg(m *types.PMsg) {
 	switch m.Topic {
 	case types.SetNewBlockTopic:
@@ -123,13 +135,15 @@ func (c *Chain) handlePMsg(m *types.PMsg) {
 
 func (c *Chain) Run() {
 	go runRpc(fmt.Sprintf(":%d", c.RpcPort), c)
+	go c.pool.Run()
 	for m := range c.node.C {
 		pm, err := c.unmashalMsg(m)
 		if err != nil {
 			clog.Errorw("unmarshalMsg error", "err", err)
 			continue
 		}
-		c.handlePMsg(pm)
+		// c.handlePMsg(pm)
+		c.pool.Put(&pmsgTask{pm, c})
 	}
 }
 
@@ -166,7 +180,6 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 		c.db.Delete(h)
 	}
 
-	clog.Infow("handleNewBlock", "height", nb.Header.Height)
 	c.mu.Lock()
 	c.curHeight = nb.Header.Height
 	delete(c.preblock_mp, c.curHeight)
@@ -175,6 +188,8 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 	if ok && npb != nil {
 		npb.merkel()
 		clog.Infow("handleNewBlock", "height", nb.Header.Height, "npb height", npb.b.Header.Height, "npb ntx", npb.txsLen())
+	} else {
+		clog.Infow("handleNewBlock", "height", nb.Header.Height)
 	}
 	return nil
 }
@@ -213,11 +228,20 @@ func (c *Chain) handleTxs(txs []*types.Tx) {
 	}
 	c.mu.Lock()
 	height := c.curHeight + int64(c.PreBlocks) //+ int64(th[0]%byte(c.Chain.ShardNum))
-	pb, ok := c.preblock_mp[height]
-	if !ok {
-		b := &types.Block{Header: &types.Header{Height: height}}
-		pb = &preBlock{b: b}
-		c.preblock_mp[height] = pb
+	var pb *preBlock
+	ok := false
+	for {
+		pb, ok = c.preblock_mp[height]
+		if !ok {
+			b := &types.Block{Header: &types.Header{Height: height}}
+			pb = &preBlock{b: b}
+			c.preblock_mp[height] = pb
+		}
+		if pb.txsLen() >= c.MaxBlockTxs {
+			height++
+		} else {
+			break
+		}
 	}
 	c.mu.Unlock()
 	pb.setTxs(txs)
@@ -289,8 +313,8 @@ func (c *Chain) getPreBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 			break
 		}
 		bs = append(bs, pb.b)
+		clog.Infow("getPreBlock", "height", i, "ntx", pb.txsLen())
 	}
-	clog.Infow("getPreBlock", "start", m.Start, "count", m.Count, "nb", len(bs))
 	return &types.BlocksReply{Bs: bs, LastHeight: c.curHeight}, nil
 }
 

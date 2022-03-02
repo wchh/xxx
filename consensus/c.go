@@ -82,6 +82,7 @@ func New(conf *config.ConsensusConfig) (*Consensus, error) {
 		Port:      conf.ServerPort,
 		Topics:    types.ConsensusTopcs,
 		BootPeers: append(conf.BootPeers, conf.DataNodePID),
+		Compress:  conf.CompressP2p,
 	}
 	node, err := p2p.NewNode(p2pConf)
 	if err != nil {
@@ -205,7 +206,6 @@ func (c *Consensus) handlePMsg(msg *types.PMsg) {
 	case types.ConsensusBlockTopic:
 		c.handleConsensusBlock(msg.Msg.(*types.NewBlock))
 	}
-	clog.Infow("handlePMSG", "topic", msg.Topic, "pid", msg.PID)
 }
 
 func (c *Consensus) readP2pMsg() {
@@ -315,7 +315,7 @@ func (c *Consensus) handleNewblock(b *types.Block) {
 	c.voteMaker(voteHeight, round)
 	c.voteCommittee(voteHeight, round)
 	c.clean(height)
-	c.getPreBlocks(height + 2)
+	c.getPreBlocks(height + 4)
 }
 
 func (c *Consensus) consensusRun() {
@@ -330,9 +330,14 @@ func (c *Consensus) consensusRun() {
 
 	for {
 		select {
-		case msg := <-c.mch:
-			c.handlePMsg(msg)
+		// case msg := <-c.mch:
+		// 	c.handlePMsg(msg)
 		case b := <-c.nbch:
+			select {
+			case msg := <-c.mch:
+				c.handlePMsg(msg)
+			default:
+			}
 			round = 0
 			c.handleNewblock(b)
 			time.AfterFunc(blockTimeout, func() { tm1Ch <- b.Header.Height })
@@ -463,6 +468,45 @@ func readLastHeader(db db.KV) (*types.Header, error) {
 	return h, nil
 }
 
+type execTxResult struct {
+	tx *types.Tx
+	ok bool
+}
+
+type execTxTask struct {
+	tx *types.Tx
+	cc *contract.Container
+	ch chan *execTxResult
+}
+
+func (t *execTxTask) Do() {
+	err := t.cc.ExecTx(t.tx)
+	// if err != nil {
+	// 	clog.Errorw("execTx error", "err", err)
+	// }
+	t.ch <- &execTxResult{tx: t.tx, ok: err == nil}
+}
+
+func (c *Consensus) execTxs(txs []*types.Tx) []*types.Tx {
+	ch := make(chan *execTxResult, 16)
+	defer close(ch)
+	go func() {
+		for _, tx := range txs {
+			c.pool.Put(&execTxTask{tx: tx, cc: c.cc, ch: ch})
+		}
+	}()
+	index := 0
+	for i := 0; i < len(txs); i++ {
+		tr := <-ch
+		if tr.ok {
+			txs[index] = tr.tx
+			index++
+		}
+	}
+	txs = txs[:index]
+	return txs
+}
+
 func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 	var failedHash [][]byte
 
@@ -475,20 +519,16 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 	db := db.NewMDB(c.db)
 	c.cc.SetDB(db)
 
-	rtxs := make([]*types.Tx, len(txs))
-	index := 0
-	for _, tx := range txs {
-		err := c.cc.ExecTx(tx)
-		if err != nil {
-			failedHash = append(failedHash, tx.Hash())
-		} else {
-			rtxs[index] = tx
-		}
-		index++
+	err := c.cc.ExecTx(txs[0])
+	if err != nil {
+		return nil, err
 	}
-	rtxs = rtxs[:index]
-	b.Header.TxsHash = types.TxsMerkel(rtxs)
-	b.Txs = rtxs
+	if len(txs) > 1 {
+		c.execTxs(txs[1:])
+	}
+
+	b.Header.TxsHash = types.TxsMerkel(txs)
+	b.Txs = txs
 
 	writeLastHeader(b.Header, db)
 
@@ -849,6 +889,7 @@ func (c *Consensus) firstSort(zb *types.Block) {
 }
 
 func (c *Consensus) getPreBlocks(height int64) error {
+	clog.Infow("getPreBlocks", "height", height)
 	if c.UseRpcToDataNode {
 		c.pool.Put(&getPreBlockTask{height: height, c: c})
 	} else {
