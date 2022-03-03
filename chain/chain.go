@@ -16,8 +16,22 @@ import (
 var clog = log.New("chain")
 
 type preBlock struct {
-	mu sync.Mutex
-	b  *types.Block
+	mu     sync.Mutex
+	b      *types.Block
+	locked bool
+}
+
+func (pb *preBlock) islock() bool {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	return pb.locked
+}
+
+func (pb *preBlock) lock() {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	pb.locked = true
+
 }
 
 func (pb *preBlock) txsLen() int {
@@ -186,6 +200,7 @@ func (c *Chain) handleNewBlock(nb *types.NewBlock) error {
 	npb, ok := c.preblock_mp[c.curHeight+int64(c.PreBlocks)-1]
 	c.mu.Unlock()
 	if ok && npb != nil {
+		npb.lock()
 		npb.merkel()
 		clog.Infow("handleNewBlock", "height", nb.Header.Height, "npb height", npb.b.Header.Height, "npb ntx", npb.txsLen())
 	} else {
@@ -226,7 +241,10 @@ func (c *Chain) handleTxs(txs []*types.Tx) {
 		}
 
 	}
+
 	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	height := c.curHeight + int64(c.PreBlocks) //+ int64(th[0]%byte(c.Chain.ShardNum))
 	var pb *preBlock
 	ok := false
@@ -237,13 +255,15 @@ func (c *Chain) handleTxs(txs []*types.Tx) {
 			pb = &preBlock{b: b}
 			c.preblock_mp[height] = pb
 		}
-		if pb.txsLen() >= c.MaxBlockTxs {
+		if pb.txsLen() >= c.MaxBlockTxs || pb.islock() {
 			height++
+			if height-c.curHeight > int64(c.PreBlocks)*2 {
+				return
+			}
 		} else {
 			break
 		}
 	}
-	c.mu.Unlock()
 	pb.setTxs(txs)
 }
 

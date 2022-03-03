@@ -310,12 +310,11 @@ func (c *Consensus) handleNewblock(b *types.Block) {
 	height := b.Header.Height
 	sortHeight := height + int64(c.AdvSortBlocks)
 	voteHeight := height + int64(c.AdvVoteBlocks)
-	c.makeBlock(height+1, round)
 	c.sortition(hash, sortHeight, round)
 	c.voteMaker(voteHeight, round)
 	c.voteCommittee(voteHeight, round)
 	c.clean(height)
-	c.getPreBlocks(height + 4)
+	c.getPreBlocks(height + 3)
 }
 
 func (c *Consensus) consensusRun() {
@@ -330,17 +329,13 @@ func (c *Consensus) consensusRun() {
 
 	for {
 		select {
-		// case msg := <-c.mch:
-		// 	c.handlePMsg(msg)
+		case msg := <-c.mch:
+			c.handlePMsg(msg)
 		case b := <-c.nbch:
-			select {
-			case msg := <-c.mch:
-				c.handlePMsg(msg)
-			default:
-			}
 			round = 0
 			c.handleNewblock(b)
 			time.AfterFunc(blockTimeout, func() { tm1Ch <- b.Header.Height })
+			time.AfterFunc(time.Millisecond, func() { tm2Ch <- b.Header.Height + 1 })
 		case height := <-tm2Ch:
 			c.makeBlock(height, round)
 		case height := <-tm1Ch:

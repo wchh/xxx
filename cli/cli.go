@@ -95,8 +95,14 @@ func main() {
 			{
 				Name:  "test",
 				Usage: "run send txs test",
+				Flags: []cli.Flag{
+					&cli.IntFlag{
+						Name:  "n",
+						Value: 30000,
+					},
+				},
 				Action: func(c *cli.Context) error {
-					runSendTx(30000)
+					runSendTx(c.Int("n"))
 					return nil
 				},
 			},
