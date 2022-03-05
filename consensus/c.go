@@ -48,7 +48,8 @@ type Consensus struct {
 	nbch chan *types.Block
 	mch  chan *types.PMsg
 
-	pool *utils.GoPool
+	pool    *utils.GoPool
+	txsPool *utils.LablePool
 }
 
 func initContracts(conf *config.ConsensusConfig) *contract.Container {
@@ -119,7 +120,8 @@ func New(conf *config.ConsensusConfig) (*Consensus, error) {
 		nbch: make(chan *types.Block, 1),
 		mch:  make(chan *types.PMsg, 256),
 
-		pool: utils.NewPool(8, 64),
+		pool:    utils.NewPool(8, 64),
+		txsPool: new(utils.LablePool),
 	}, nil
 }
 
@@ -487,7 +489,7 @@ func (c *Consensus) execTxs(txs []*types.Tx) []*types.Tx {
 	defer close(ch)
 	go func() {
 		for _, tx := range txs {
-			c.pool.Put(&execTxTask{tx: tx, cc: c.cc, ch: ch})
+			c.txsPool.Put(&execTxTask{tx: tx, cc: c.cc, ch: ch}, int(tx.Sig.PublicKey[0])%16)
 		}
 	}()
 	index := 0
@@ -617,14 +619,27 @@ func (c *Consensus) setBlock(nb *types.NewBlock) {
 func (c *Consensus) addNewBlock(b *types.Block) {
 	t := time.Now().UnixMilli()
 	d := 1000 - t + b.Header.BlockTime
-	clog.Infow("addNewblock", "height", b.Header.Height, "duration", d)
+	clog.Infow("addNewBlock", "height", b.Header.Height, "duration", d)
 	time.AfterFunc(time.Millisecond*time.Duration(d), func() {
 		c.nbch <- b
 	})
 }
 
+func (c *Consensus) checkBlock(b *types.Block) error {
+	return nil
+}
+
+func (c *Consensus) checkNewBlock(b *types.NewBlock) error {
+	return nil
+}
+
 func (c *Consensus) handleConsensusBlock(b *types.NewBlock) {
-	c.setBlock(b)
+	err := c.checkNewBlock(b)
+	if err != nil {
+		clog.Errorw("checkNewBlock error", "err", err, "height", b.Header.Height)
+	} else {
+		c.setBlock(b)
+	}
 }
 
 func (c *Consensus) difficulty(t, r int, h int64) float64 {

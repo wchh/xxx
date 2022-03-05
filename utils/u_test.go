@@ -58,3 +58,32 @@ func TestGoPool(t *testing.T) {
 	close(ch)
 	fmt.Println("verify", count, "用时", time.Since(bt))
 }
+
+func TestLablePool(t *testing.T) {
+	pool := new(LablePool)
+	const count = 30000
+	ts := make([]*task, count)
+	m := []byte("asdfalsdfalsdfladfalsdfalsdfladfjaldfajlsdf")
+	ch := make(chan bool, count)
+	for i := 0; i < count; i++ {
+		sk, _ := crypto.NewKey()
+		pk := sk.PublicKey()
+		ts[i] = &task{pk: pk, m: m, sig: crypto.Sign(sk, m), ch: ch}
+	}
+
+	bt := time.Now()
+	go func() {
+		for _, t := range ts {
+			pool.Put(t, int(t.pk[0]%16))
+		}
+	}()
+	k := 0
+	for range ch {
+		k++
+		if k == count {
+			break
+		}
+	}
+	close(ch)
+	fmt.Println("verify", count, "用时", time.Since(bt))
+}

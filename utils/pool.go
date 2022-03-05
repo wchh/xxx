@@ -1,11 +1,13 @@
 package utils
 
+import "sync"
+
 type Task interface {
 	Do()
 }
 
 type worker struct {
-	ch  chan<- *worker
+	wch chan<- *worker
 	tch chan Task
 }
 
@@ -16,7 +18,9 @@ func (w *worker) put(t Task) {
 func (w *worker) run() {
 	for t := range w.tch {
 		t.Do()
-		w.ch <- w
+		if w.wch != nil {
+			w.wch <- w
+		}
 	}
 }
 
@@ -64,4 +68,18 @@ func (p *GoPool) Run() {
 
 func (p *GoPool) Put(t Task) {
 	p.tch <- t
+}
+
+type LablePool sync.Map
+
+func (p *LablePool) Put(t Task, l int) {
+	val, ok := (*sync.Map)(p).Load(l)
+	if !ok {
+		w := &worker{tch: make(chan Task, 64)}
+		(*sync.Map)(p).Store(l, w)
+		go w.run()
+		val = w
+	}
+	w := val.(*worker)
+	w.put(t)
 }

@@ -97,12 +97,16 @@ func main() {
 				Usage: "run send txs test",
 				Flags: []cli.Flag{
 					&cli.IntFlag{
+						Name:  "a",
+						Value: 1000000,
+					},
+					&cli.IntFlag{
 						Name:  "n",
 						Value: 30000,
 					},
 				},
 				Action: func(c *cli.Context) error {
-					runSendTx(c.Int("n"))
+					runSendTx(c.Int("n"), c.Int("a"))
 					return nil
 				},
 			},
@@ -475,26 +479,46 @@ func randAddress() string {
 	return crypto.NewAddress(crypto.Hash(s))
 }
 
-func runSendTx(count int) error {
+type account struct {
+	sk   crypto.PrivateKey
+	addr string
+}
+
+func initAccounts(count int, ch chan<- *types.Tx) []*account {
 	skSeed := "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05"
-	sk, err := crypto.PrivateKeyFromString(skSeed)
-	if err != nil {
-		return err
+	rootKey, _ := crypto.PrivateKeyFromString(skSeed)
+	accs := make([]*account, 0, count)
+	for i := 0; i < count; i++ {
+		sk, _ := crypto.NewKey()
+		acc := &account{sk, sk.PublicKey().Address()}
+		accs = append(accs, acc)
+		tx, _ := coin.CreateTransferTx(rootKey, acc.addr, 1e8*1e3, 0)
+		ch <- tx
 	}
+	return accs
+}
 
+func runSendTx(ntx1s int, accCount int) error {
+	rand.Seed(time.Now().Unix())
 	ch := make(chan *types.Tx, 1024)
-	go func() {
-		for {
-			to := randAddress()
-			tx, err := coin.CreateTransferTx(sk, to, 1, 0)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			ch <- tx
+	go sendTx(ch, ntx1s)
+	accs := initAccounts(accCount, ch)
+	fmt.Printf("create %d accounts ok\n", accCount)
+	for {
+		i := rand.Intn(len(accs))
+		j := len(accs) - i - 1
+		sk := accs[i].sk
+		to := accs[j].addr
+		tx, err := coin.CreateTransferTx(sk, to, 1, 0)
+		if err != nil {
+			log.Println(err)
+			return err
 		}
-	}()
+		ch <- tx
+	}
+}
 
+func sendTx(ch <-chan *types.Tx, ntx1s int) error {
 	const N = 256
 	txs := make([]*types.Tx, N)
 	i := 0
@@ -507,12 +531,12 @@ func runSendTx(count int) error {
 			xclient.Call(context.Background(), "SendTxs", txs, &struct{}{})
 			i = 0
 			sent += N
-			if sent >= count {
+			if sent >= ntx1s {
 				d := time.Since(bt)
 				if d < time.Second {
 					time.Sleep(time.Second - d)
 				}
-				println("send txs:", sent, "duration:", d)
+				fmt.Println("send txs:", sent, "duration:", d)
 				sent = 0
 				bt = time.Now()
 			}
