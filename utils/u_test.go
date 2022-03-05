@@ -60,7 +60,7 @@ func TestGoPool(t *testing.T) {
 }
 
 func TestLablePool(t *testing.T) {
-	pool := new(LablePool)
+	pool := new(GoLablePool)
 	const count = 30000
 	ts := make([]*task, count)
 	m := []byte("asdfalsdfalsdfladfalsdfalsdfladfjaldfajlsdf")

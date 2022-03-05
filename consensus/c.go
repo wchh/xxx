@@ -49,7 +49,7 @@ type Consensus struct {
 	mch  chan *types.PMsg
 
 	pool    *utils.GoPool
-	txsPool *utils.LablePool
+	txsPool utils.GoLablePool
 }
 
 func initContracts(conf *config.ConsensusConfig) *contract.Container {
@@ -120,8 +120,7 @@ func New(conf *config.ConsensusConfig) (*Consensus, error) {
 		nbch: make(chan *types.Block, 1),
 		mch:  make(chan *types.PMsg, 256),
 
-		pool:    utils.NewPool(8, 64),
-		txsPool: new(utils.LablePool),
+		pool: utils.NewPool(8, 64),
 	}, nil
 }
 

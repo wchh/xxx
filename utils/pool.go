@@ -70,16 +70,17 @@ func (p *GoPool) Put(t Task) {
 	p.tch <- t
 }
 
-type LablePool sync.Map
+// if you want the same lable tasks run on a same goroutine
+type GoLablePool struct {
+	sync.Map
+}
 
-func (p *LablePool) Put(t Task, l int) {
-	val, ok := (*sync.Map)(p).Load(l)
+func (p *GoLablePool) Put(t Task, l interface{}) {
+	w, ok := p.Load(l)
 	if !ok {
-		w := &worker{tch: make(chan Task, 64)}
-		(*sync.Map)(p).Store(l, w)
-		go w.run()
-		val = w
+		w = &worker{tch: make(chan Task, 64)}
+		p.Store(l, w)
+		go w.(*worker).run()
 	}
-	w := val.(*worker)
-	w.put(t)
+	w.(*worker).put(t)
 }
