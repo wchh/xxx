@@ -464,12 +464,7 @@ type preBlock struct {
 
 func (c *Consensus) handlePreBlock(b *types.Block) {
 	clog.Infow("handlePreBlock", "height", b.Header.Height, "ntx", len(b.Txs))
-	// _, ok := c.preblock_mp[b.Header.Height]
-	// if ok {
-	// 	return
-	// }
 	c.pool.Put(&preBlockTask{b: b, bch: c.preBlockCh, pool: c.pool, check: c.CheckSig})
-	// c.preblock_mp[b.Header.Height] = &preBlock{ok: false}
 }
 
 func (c *Consensus) handleMakerVote(v *types.Vote) {
@@ -511,60 +506,17 @@ func readLastHeader(db db.KV) (*types.Header, error) {
 	return h, nil
 }
 
-type execTxResult struct {
-	tx *types.Tx
-	ok bool
-}
-
-type execTxTask struct {
-	tx *types.Tx
-	cc *contract.Container
-	ch chan *execTxResult
-}
-
-func (t *execTxTask) Do() {
-	err := t.cc.ExecTx(t.tx)
-	t.ch <- &execTxResult{tx: t.tx, ok: err == nil}
-}
-
-func (c *Consensus) execTxs(txs []*types.Tx) []*types.Tx {
-	ch := make(chan *execTxResult, 16)
-	defer close(ch)
-	go func() {
-		for _, tx := range txs {
-			c.txsPool.Put(&execTxTask{tx: tx, cc: c.cc, ch: ch}, int(tx.Sig.PublicKey[0])%16)
-		}
-	}()
-	index := 0
-	for i := 0; i < len(txs); i++ {
-		tr := <-ch
-		if tr.ok {
-			txs[index] = tr.tx
-			index++
-		}
-	}
-	txs = txs[:index]
-	return txs
-}
-
 func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 	var failedHash [][]byte
 
 	clog.Infow("preExecBlock", "height", b.Header.Height, "round", b.Header.Round, "ntx", len(b.Txs))
 	txs := b.Txs
-	// if c.CheckSig && b.Header.Height > 0 {
-	// 	txs, failedHash, _ = c.txsVerifySig(txs, false)
-	// }
 
 	db := db.NewMDB(c.db)
 	c.cc.SetDB(db)
 
-	err := c.cc.ExecTx(txs[0])
-	if err != nil {
-		return nil, err
-	}
-	if len(txs) > 1 {
-		c.execTxs(txs[1:])
+	if len(txs) > 0 {
+		c.execTxs(txs)
 	}
 
 	b.Header.TxsHash = types.TxsMerkel(txs)
@@ -598,20 +550,10 @@ func (c *Consensus) execBlock(b *types.Block) error {
 	})
 
 	txs := b.Txs
-	// if c.CheckSig && b.Header.Height > 0 {
-	// 	_, _, err = c.txsVerifySig(txs, true)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// }
-
-	// TODO: parallel exec txs
-	for _, tx := range txs {
-		err = c.cc.ExecTx(tx)
-		if err != nil {
-			clog.Errorw("execBlock exectx error", "err", err)
-			return err
-		}
+	ntx := len(txs)
+	txs = c.execTxs(txs)
+	if len(txs) != ntx {
+		return errors.New("execTxs error")
 	}
 
 	err = writeLastHeader(b.Header, t)
