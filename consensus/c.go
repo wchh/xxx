@@ -341,7 +341,7 @@ func (c *Consensus) consensusRun() {
 		case msg := <-c.mch:
 			c.handlePMsg(msg)
 		case pb := <-c.preBlockCh:
-			c.preblock_mp[pb.Height] = pb
+			c.preblock_mp[pb.height] = pb
 		case b := <-c.nbch:
 			round = 0
 			c.handleNewblock(b)
@@ -457,9 +457,8 @@ func (c *Consensus) makeBlock(height int64, round int) {
 }
 
 type preBlock struct {
-	*types.Header
-	txs []*indexTx
-	ok  bool // if verified
+	height int64
+	txs    []*indexTx
 }
 
 func (c *Consensus) handlePreBlock(b *types.Block) {

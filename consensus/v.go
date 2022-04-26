@@ -19,9 +19,7 @@ type verifyTxTask struct {
 }
 
 func (t *verifyTxTask) Do() {
-	if t.tx.tx.Verify() {
-		t.tx.ok = true
-	}
+	t.tx.ok = t.tx.tx.Verify()
 	t.ch <- t.tx
 }
 
@@ -38,7 +36,7 @@ func (t *preBlockTask) Do() {
 		for i, tx := range t.b.Txs {
 			indexTxs[i] = &indexTx{tx: tx, index: i, ok: true}
 		}
-		t.bch <- &preBlock{Header: t.b.Header, txs: indexTxs, ok: true}
+		t.bch <- &preBlock{height: t.b.Header.Height, txs: indexTxs}
 		return
 	}
 
@@ -63,7 +61,7 @@ func (t *preBlockTask) Do() {
 		return indexTxs[i].index < indexTxs[j].index
 	})
 	clog.Infow("verify tx signature", "height", t.b.Header.Height, "ntxs", len(indexTxs))
-	t.bch <- &preBlock{Header: t.b.Header, txs: indexTxs, ok: true}
+	t.bch <- &preBlock{height: t.b.Header.Height, txs: indexTxs}
 }
 
 type execTxResult struct {
