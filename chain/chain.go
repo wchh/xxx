@@ -329,8 +329,7 @@ func (c *Chain) getPreBlocks(m *types.GetBlocks) (*types.BlocksReply, error) {
 	for i := m.Start; i < m.Start+m.Count; i++ {
 		pb, ok := c.preblock_mp[i]
 		if !ok {
-			// return nil, fmt.Errorf("the %d preblock NOT here", i)
-			break
+			pb = &preBlock{b: &types.Block{Header: &types.Header{Height: i}}}
 		}
 		bs = append(bs, pb.b)
 		clog.Infow("getPreBlock", "height", i, "ntx", pb.txsLen())

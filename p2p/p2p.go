@@ -214,7 +214,7 @@ func (g *Node) handleOutgoing() {
 		m := <-g.smch
 		s, err := g.newStream(m.PID)
 		if err != nil {
-			plog.Errorw("new stream error", "err", err, "pid", m.PID)
+			plog.Errorw("new stream error", "err", err)
 			continue
 		}
 		data, err := types.Marshal(m.Msg)

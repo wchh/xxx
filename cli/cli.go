@@ -38,7 +38,7 @@ func main() {
 			&cli.StringFlag{
 				Name:        "rpcaddr",
 				Aliases:     []string{"r"},
-				Value:       "localhost:10801",
+				Value:       "localhost:10601",
 				Usage:       "rpc server address",
 				Destination: &rpcAddr,
 			},
@@ -484,65 +484,114 @@ type account struct {
 	addr string
 }
 
-func initAccounts(count int, ch chan<- *types.Tx) []*account {
+type initTxTask struct {
+	txch chan<- *types.Tx
+	acch chan *account
+	rsk  crypto.PrivateKey
+}
+
+func (t *initTxTask) Do() {
+	sk, _ := crypto.NewKey()
+	acc := &account{sk, sk.PublicKey().Address()}
+	tx, _ := coin.CreateTransferTx(t.rsk, acc.addr, 1e8*1e3, 0)
+	t.txch <- tx
+	t.acch <- acc
+}
+
+func initAccounts(pool *utils.GoPool, count int, ch chan<- *types.Tx) []*account {
 	skSeed := "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05"
 	rootKey, _ := crypto.PrivateKeyFromString(skSeed)
+	acch := make(chan *account, 1024)
+
+	go func() {
+		for i := 0; i < count; i++ {
+			pool.Put(&initTxTask{
+				txch: ch,
+				acch: acch,
+				rsk:  rootKey,
+			})
+		}
+	}()
+
 	accs := make([]*account, 0, count)
-	for i := 0; i < count; i++ {
-		sk, _ := crypto.NewKey()
-		acc := &account{sk, sk.PublicKey().Address()}
+	for acc := range acch {
 		accs = append(accs, acc)
-		tx, _ := coin.CreateTransferTx(rootKey, acc.addr, 1e8*1e3, 0)
-		ch <- tx
 	}
+	close(acch)
 	return accs
 }
 
+type newTxTask struct {
+	ch chan<- *types.Tx
+	sk crypto.PrivateKey
+	to string
+}
+
+func (t *newTxTask) Do() {
+	tx, err := coin.CreateTransferTx(t.sk, t.to, 1, 0)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	t.ch <- tx
+}
+
 func runSendTx(ntx1s int, accCount int) error {
+	pool := utils.NewPool(32, 64)
+	go pool.Run()
+
 	rand.Seed(time.Now().Unix())
-	ch := make(chan *types.Tx, 1024)
-	go sendTx(ch, ntx1s)
-	accs := initAccounts(accCount, ch)
+	const N = 1024
+	ch := make(chan *types.Tx, N)
+	for i := 0; i < 16; i++ {
+		pool.Put(&sendTxTask{
+			ch:    ch,
+			ntx1s: ntx1s,
+			size:  N,
+		})
+	}
+
+	accs := initAccounts(pool, accCount, ch)
 	fmt.Printf("create %d accounts ok\n", accCount)
 	for {
 		i := rand.Intn(len(accs))
 		j := len(accs) - i - 1
 		sk := accs[i].sk
 		to := accs[j].addr
-		tx, err := coin.CreateTransferTx(sk, to, 1, 0)
-		if err != nil {
-			log.Println(err)
-			return err
-		}
-		ch <- tx
+		pool.Put(&newTxTask{
+			ch: ch,
+			sk: sk,
+			to: to,
+		})
 	}
 }
 
-func sendTx(ch <-chan *types.Tx, ntx1s int) error {
-	const N = 256
-	txs := make([]*types.Tx, N)
+type sendTxTask struct {
+	ch    <-chan *types.Tx
+	ntx1s int
+	size  int
+}
+
+func (t *sendTxTask) Do() {
+	txs := make([]*types.Tx, t.size)
 	i := 0
 	bt := time.Now()
 	sent := 0
-	for tx := range ch {
+	for tx := range t.ch {
 		txs[i] = tx
 		i++
-		if i == N {
+		if i == t.size {
 			xclient.Call(context.Background(), "SendTxs", txs, &struct{}{})
 			i = 0
-			sent += N
-			if sent >= ntx1s {
+			sent += t.size
+			if sent >= t.ntx1s {
 				d := time.Since(bt)
-				if d < time.Second {
-					time.Sleep(time.Second - d)
-				}
 				fmt.Println("send txs:", sent, "duration:", d)
 				sent = 0
 				bt = time.Now()
 			}
 		}
 	}
-	return nil
 }
 
 type task struct {

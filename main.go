@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"xxx/chain"
 	"xxx/config"
@@ -28,7 +30,10 @@ func main() {
 			datanodeCmd(),
 		},
 	}
-	app.Run(os.Args)
+	go app.Run(os.Args)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGTERM)
+	<-c
 }
 
 type logInfo struct {

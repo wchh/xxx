@@ -61,8 +61,9 @@ var DefaultConsensusConfig = &ConsensusConfig{
 	LogLevel:             "debug",
 	RpcPort:              10801,
 	ServerPort:           10901,
-	DataNodeRpc:          "localhost:10801",
-	DataNodePID:          "/ip4/192.168.0.143/tcp/10901/p2p/12D3KooWMprfHvNnmXqLZtUfEdKS9FZocZNz8ir7Vax43nb4af1M",
+	UseRpcToDataNode:     false,
+	DataNodeRpc:          "localhost:10601",
+	DataNodePID:          "/ip4/192.168.0.143/tcp/10701/p2p/12D3KooWMprfHvNnmXqLZtUfEdKS9FZocZNz8ir7Vax43nb4af1M",
 	BootPeers:            []string{},
 	FundAddress:          "3ftLmbf3MEPXTJYmd4HsRtKqUgy",
 	PrivateSeed:          "4f9db771073ee5c51498be842c1a9428edbc992a91e0bac65585f39a642d3a05",
@@ -79,6 +80,8 @@ var DefaultConsensusConfig = &ConsensusConfig{
 	AdvVoteBlocks:        5,
 	CheckSig:             true,
 	Single:               true,
+	CompressRpc:          true,
+	CompressP2p:          true,
 }
 
 var DefaultDataNodeConfig = &DataNodeConfig{
@@ -91,6 +94,9 @@ var DefaultDataNodeConfig = &DataNodeConfig{
 	RpcPort:     10601,
 	ServerPort:  10701,
 	PreBlocks:   4,
+	MaxBlockTxs: 50000,
+	CompressRpc: true,
+	CompressP2p: true,
 }
 
 // genesis key

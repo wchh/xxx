@@ -40,13 +40,14 @@ type Consensus struct {
 
 	maker_mp      map[int64]map[int]*maker
 	committee_mp  map[int64]map[int]*committee
-	preblock_mp   map[int64]*types.Block
+	preblock_mp   map[int64]*preBlock
 	alldeposit_mp map[int64]int
 	block_mp      map[int64]*types.Block
 	peer_mp       map[string]*types.PeerInfo
 
-	nbch chan *types.Block
-	mch  chan *types.PMsg
+	nbch       chan *types.Block
+	mch        chan *types.PMsg
+	preBlockCh chan *preBlock
 
 	pool    *utils.GoPool
 	txsPool utils.GoLablePool
@@ -112,15 +113,16 @@ func New(conf *config.ConsensusConfig) (*Consensus, error) {
 		myAddr:          crypto.PubkeyToAddr(priv.PublicKey()),
 		maker_mp:        make(map[int64]map[int]*maker),
 		committee_mp:    make(map[int64]map[int]*committee),
-		preblock_mp:     make(map[int64]*types.Block),
+		preblock_mp:     make(map[int64]*preBlock),
 		alldeposit_mp:   make(map[int64]int),
 		block_mp:        make(map[int64]*types.Block),
 		peer_mp:         make(map[string]*types.PeerInfo),
 
-		nbch: make(chan *types.Block, 1),
-		mch:  make(chan *types.PMsg, 256),
+		nbch:       make(chan *types.Block, 1),
+		mch:        make(chan *types.PMsg, 256),
+		preBlockCh: make(chan *preBlock, 128),
 
-		pool: utils.NewPool(8, 64),
+		pool: utils.NewPool(64, 128),
 	}, nil
 }
 
@@ -300,6 +302,14 @@ func (c *Consensus) handleNewblock(b *types.Block) {
 	c.lastBlock = b // b is complete block
 	c.block_mp[b.Header.Height] = b
 
+	height := b.Header.Height
+	for i := height + 1; i < height+4; i++ {
+		_, ok := c.preblock_mp[i]
+		if !ok {
+			c.getPreBlocks(i)
+		}
+	}
+
 	if b.Header.Height == 0 {
 		if c.Single {
 			c.firstSort(b)
@@ -308,14 +318,12 @@ func (c *Consensus) handleNewblock(b *types.Block) {
 
 	round := 0
 	hash := b.Hash()
-	height := b.Header.Height
 	sortHeight := height + int64(c.AdvSortBlocks)
 	voteHeight := height + int64(c.AdvVoteBlocks)
 	c.sortition(hash, sortHeight, round)
 	c.voteMaker(voteHeight, round)
 	c.voteCommittee(voteHeight, round)
 	c.clean(height)
-	c.getPreBlocks(height + 3)
 }
 
 func (c *Consensus) consensusRun() {
@@ -332,13 +340,20 @@ func (c *Consensus) consensusRun() {
 		select {
 		case msg := <-c.mch:
 			c.handlePMsg(msg)
+		case pb := <-c.preBlockCh:
+			c.preblock_mp[pb.Height] = pb
 		case b := <-c.nbch:
 			round = 0
 			c.handleNewblock(b)
 			time.AfterFunc(blockTimeout, func() { tm1Ch <- b.Header.Height })
 			time.AfterFunc(time.Millisecond, func() { tm2Ch <- b.Header.Height + 1 })
 		case height := <-tm2Ch:
-			c.makeBlock(height, round)
+			_, ok := c.preblock_mp[height]
+			if !ok {
+				time.AfterFunc(time.Millisecond*100, func() { tm2Ch <- height })
+			} else {
+				c.makeBlock(height, round)
+			}
 		case height := <-tm1Ch:
 			if c.lastBlock.Header.Height == height {
 				round++
@@ -359,26 +374,46 @@ func nv(vs []*types.Vote) int {
 	return n
 }
 
-func (c *Consensus) makeBlock(height int64, round int) {
-	c.getCommittee(height, round).setCommittee()
+func (c *Consensus) getPreBlock(height int64, round int) (*types.Block, [][]byte) {
+	var faildHashs [][]byte
+	pb := c.preblock_mp[height]
+	b := &types.Block{
+		Header: &types.Header{},
+	}
+	for _, tx := range pb.txs {
+		if tx.ok {
+			b.Txs = append(b.Txs, tx.tx)
+		} else {
+			faildHashs = append(faildHashs, tx.tx.Hash())
+		}
+	}
+	b.Header.Height = height
+	ph := c.lastBlock.Hash()
+	b.Header.ParentHash = ph
+	b.Header.BlockTime = time.Now().UnixMilli()
+	b.Header.Round = int32(round)
 
+	return b, faildHashs
+}
+
+func (c *Consensus) makeTx0(height int64, round int) *types.Tx {
 	maker := c.getmaker(height, round)
 	maker.setMaker()
 	if maker.my == nil {
 		clog.Infow("makeBlock Not sort")
-		return
+		return nil
 	}
 	hash := maker.my.Hashs[0].Hash
 
 	vs, ok := maker.mvmp[string(hash)]
 	if !ok {
 		clog.Infow("makeBlock Not vote maker")
-		return
+		return nil
 	}
 	vn := nv(vs)
 	if vn < MustVotes {
 		clog.Infow("makeBlock Not enough votes")
-		return
+		return nil
 	}
 
 	m := &types.Ycc_Mine{
@@ -394,35 +429,47 @@ func (c *Consensus) makeBlock(height int64, round int) {
 		Op:       ycc.MineOp,
 		Data:     data,
 	}
-
-	ph := c.lastBlock.Hash()
 	tx0.Sign(c.priv)
-	b, ok := c.preblock_mp[height]
-	if !ok {
-		clog.Infow("makeBlock preBlock not in cache", "height", height)
-		b = &types.Block{
-			Header: &types.Header{},
-		}
+	clog.Infow("makeTx0", "height", height, "round", round, "myhash", utils.ByteString(hash), "nv", vn)
+	return tx0
+}
+
+func (c *Consensus) makeBlock(height int64, round int) {
+	c.getCommittee(height, round).setCommittee()
+
+	tx0 := c.makeTx0(height, round)
+	if tx0 == nil {
+		return
 	}
-	b.Header.Height = height
-	b.Header.ParentHash = ph
-	b.Header.BlockTime = time.Now().UnixMilli()
-	b.Header.Round = int32(round)
+
+	b, faildHashs := c.getPreBlock(height, round)
 	b.Txs = append([]*types.Tx{tx0}, b.Txs...)
-	clog.Infow("makeBlock", "height", height, "round", round, "myhash", utils.ByteString(hash), "nv", vn, "ntx", len(b.Txs))
 
 	nb, err := c.perExecBlock(b)
 	if err != nil {
 		panic(err)
 	}
+	nb.FailedHashs = append(nb.FailedHashs, faildHashs...)
+	clog.Infow("makeTx0", "height", height, "round", round, "ntx", len(b.Txs), "failedHashs", len(nb.FailedHashs))
 
 	c.node.Publish(types.ConsensusBlockTopic, nb)
 	c.handleConsensusBlock(nb)
 }
 
+type preBlock struct {
+	*types.Header
+	txs []*indexTx
+	ok  bool // if verified
+}
+
 func (c *Consensus) handlePreBlock(b *types.Block) {
 	clog.Infow("handlePreBlock", "height", b.Header.Height, "ntx", len(b.Txs))
-	c.preblock_mp[b.Header.Height] = b
+	// _, ok := c.preblock_mp[b.Header.Height]
+	// if ok {
+	// 	return
+	// }
+	c.pool.Put(&preBlockTask{b: b, bch: c.preBlockCh, pool: c.pool, check: c.CheckSig})
+	// c.preblock_mp[b.Header.Height] = &preBlock{ok: false}
 }
 
 func (c *Consensus) handleMakerVote(v *types.Vote) {
@@ -477,9 +524,6 @@ type execTxTask struct {
 
 func (t *execTxTask) Do() {
 	err := t.cc.ExecTx(t.tx)
-	// if err != nil {
-	// 	clog.Errorw("execTx error", "err", err)
-	// }
 	t.ch <- &execTxResult{tx: t.tx, ok: err == nil}
 }
 
@@ -508,9 +552,9 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 
 	clog.Infow("preExecBlock", "height", b.Header.Height, "round", b.Header.Round, "ntx", len(b.Txs))
 	txs := b.Txs
-	if c.CheckSig && b.Header.Height > 0 {
-		txs, failedHash, _ = c.txsVerifySig(txs, false)
-	}
+	// if c.CheckSig && b.Header.Height > 0 {
+	// 	txs, failedHash, _ = c.txsVerifySig(txs, false)
+	// }
 
 	db := db.NewMDB(c.db)
 	c.cc.SetDB(db)
@@ -554,12 +598,12 @@ func (c *Consensus) execBlock(b *types.Block) error {
 	})
 
 	txs := b.Txs
-	if c.CheckSig && b.Header.Height > 0 {
-		_, _, err = c.txsVerifySig(txs, true)
-		if err != nil {
-			return err
-		}
-	}
+	// if c.CheckSig && b.Header.Height > 0 {
+	// 	_, _, err = c.txsVerifySig(txs, true)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
 
 	// TODO: parallel exec txs
 	for _, tx := range txs {
@@ -590,10 +634,10 @@ func (c *Consensus) setBlock(nb *types.NewBlock) {
 	} else {
 		pb := c.preblock_mp[height]
 		txs := []*types.Tx{nb.Tx0}
-		for _, tx := range pb.Txs {
+		for _, tx := range pb.txs {
 			for _, fh := range nb.FailedHashs {
-				if string(tx.Hash()) != string(fh) {
-					txs = append(txs, tx)
+				if string(tx.tx.Hash()) != string(fh) {
+					txs = append(txs, tx.tx)
 				}
 			}
 		}
