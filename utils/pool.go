@@ -71,6 +71,7 @@ func (p *GoPool) Put(t Task) {
 }
 
 // if you want the same lable tasks run on a same goroutine
+// ensure consistency of multiple txs of a single adtress
 type GoLablePool struct {
 	sync.Map
 }

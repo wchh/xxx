@@ -84,7 +84,7 @@ func (t *execTxTask) Do() {
 	t.ch <- &execTxResult{index: t.index, tx: t.tx, ok: err == nil}
 }
 
-func (c *Consensus) execTxs(txs []*types.Tx) []*types.Tx {
+func (c *Consensus) execTxs(txs []*types.Tx) (oktxs, errtxs []*types.Tx) {
 	ch := make(chan *execTxResult, 16)
 	defer close(ch)
 	go func() {
@@ -92,6 +92,7 @@ func (c *Consensus) execTxs(txs []*types.Tx) []*types.Tx {
 			c.txsPool.Put(&execTxTask{index: i, tx: tx, cc: c.cc, ch: ch}, int(tx.Sig.PublicKey[0])%16)
 		}
 	}()
+
 	var txResults []*execTxResult
 	for tr := range ch {
 		txResults = append(txResults, tr)
@@ -99,13 +100,13 @@ func (c *Consensus) execTxs(txs []*types.Tx) []*types.Tx {
 	sort.Slice(txResults, func(i, j int) bool {
 		return txResults[i].index < txResults[j].index
 	})
-	index := 0
+
 	for _, tr := range txResults {
 		if tr.ok {
-			txs[index] = tr.tx
-			index++
+			oktxs = append(oktxs, tr.tx)
+		} else {
+			errtxs = append(errtxs, tr.tx)
 		}
 	}
-	txs = txs[:index]
-	return txs
+	return
 }

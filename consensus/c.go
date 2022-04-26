@@ -516,7 +516,11 @@ func (c *Consensus) perExecBlock(b *types.Block) (*types.NewBlock, error) {
 	c.cc.SetDB(db)
 
 	if len(txs) > 0 {
-		c.execTxs(txs)
+		oktxs, errtxs := c.execTxs(txs)
+		txs = oktxs
+		for _, tx := range errtxs {
+			failedHash = append(failedHash, tx.Hash())
+		}
 	}
 
 	b.Header.TxsHash = types.TxsMerkel(txs)
@@ -550,9 +554,9 @@ func (c *Consensus) execBlock(b *types.Block) error {
 	})
 
 	txs := b.Txs
-	ntx := len(txs)
-	txs = c.execTxs(txs)
-	if len(txs) != ntx {
+	_, errtxs := c.execTxs(txs)
+	if len(errtxs) != 0 {
+		clog.Errorw("execBlock error", "height", b.Header.Height, "errtxs count", len(errtxs))
 		return errors.New("execTxs error")
 	}
 
