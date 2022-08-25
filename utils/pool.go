@@ -51,17 +51,16 @@ func (p *GoPool) Run() {
 		go w.run()
 	}
 	for t := range p.tch {
-		w, ok := <-p.wch
-		if !ok {
+		var w *worker
+		if len(p.wch) == 0 {
 			if p.size < p.cap {
 				w = &worker{p.wch, make(chan Task)}
+				p.wch <- w
 				go w.run()
 				p.size++
 			}
 		}
-		if w == nil { // size == cap, pool is full, only waiting
-			w = <-p.wch
-		}
+		w = <-p.wch
 		w.put(t)
 	}
 }
